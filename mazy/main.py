@@ -1,7 +1,10 @@
 import argparse
+import webbrowser
 from dataclasses import dataclass
-from typing import Callable
+from typing import Any, Callable
 
+import astropy.units as u
+import kadi.commands as kc
 import parse_cm.paths
 from cxotime import CxoTime
 
@@ -28,6 +31,15 @@ class Args:
     obsid: int | None = None
     agasc_id: int | None = None
     load_name: str | None = None
+
+    def has_exact_args(self, *args: tuple[str, ...]):
+        """True if each of `args` attributes is not None and others are None"""
+        has = all(getattr(self, arg) is not None for arg in args)
+        not_has_rest = all(
+            getattr(self, field) is None
+            for field in set(self.__dataclass_fields__) - set(args)
+        )
+        return has and not_has_rest
 
 
 def get_opt() -> argparse.ArgumentParser:
@@ -64,6 +76,16 @@ def get_opt() -> argparse.ArgumentParser:
     parser.add_argument(
         "args", nargs="+", help="Positional arguments: date, obsid, load_name, AGASC ID"
     )
+    parser.add_argument(
+        "--archive-only",
+        action="store_true",
+        help="Use archive-only (flight scenario) for kadi commands",
+    )
+    parser.add_argument(
+        "--print-url",
+        action="store_true",
+        help="Print the URL that would be opened instead of opening it in a browser",
+    )
 
     content_location = parser.add_argument_group(
         "Content location (choose one, default=cxc/icxc)"
@@ -77,7 +99,7 @@ def get_opt() -> argparse.ArgumentParser:
     )
 
     content_type = parser.add_argument_group("Content type (choose one)")
-    mode_group = content_type.add_mutually_exclusive_group()
+    mode_group = content_type.add_mutually_exclusive_group(required=True)
     mode_group.add_argument(
         "--starcheck", action="store_true", help="Open the Starcheck page"
     )
@@ -214,16 +236,119 @@ def get_arg_values(opt: argparse.Namespace) -> Args:
         if not match:
             raise ValueError(f"Unrecognized argument: {arg}")
 
+    # if opt.starcheck:
+    #     # date
+    #     # obsid
+    #     # obsid, load_name
+    #     # load_name
+    #     # NOT agasc_id
+    #     check_args(
+    #         args, [("date",), ("obsid",), ("obsid", "load_name"), ("load_name",)]
+    #     )
+
     return args
 
 
-def open_starcheck_page(
+def check_args(args: Args, allowed_combinations: list[tuple[str, ...]]) -> None:
+    """Check that the given ``Args`` instance matches one of the allowed combinations.
+
+    Parameters
+    ----------
+    args : Args
+        Parsed arguments to check.
+    allowed_combinations : list of tuple of str
+        List of allowed argument combinations. Each tuple contains the names
+        of the fields that must be set for that combination to be valid.
+
+    Raises
+    ------
+    ValueError
+        Raised if the arguments do not match any of the allowed combinations.
+    """
+    for combo in allowed_combinations:
+        if args.has_exact_args(*combo):
+            return
+
+    allowed = "\n".join(f"  - {', '.join(combo)}" for combo in allowed_combinations)
+    raise ValueError(
+        f"Arguments {args} do not match any allowed combination:\n{allowed}"
+    )
+
+
+class NotUniqueObservationError(Exception):
+    """Raised when the arguments do not specify a unique observation."""
+
+
+def get_observation(args: Args, *, archive_only=False) -> dict[str, Any]:
+    """Get a unique observation matching the given arguments."""
+    if args.date is None and args.obsid is None and args.load_name is None:
+        raise ValueError("need to specify at least one of date, obsid, or load_name")
+
+    kwargs = {}
+    if archive_only:
+        kwargs["scenario"] = "flight"
+    if args.date:
+        kwargs["start"] = args.date
+        kwargs["stop"] = args.date + 15 * u.s  # cover gap from NMAN to manvr start
+        if args.date < CxoTime("-30d"):
+            kwargs["scenario"] = "flight"  # update to "archive-only" when possible
+    if args.obsid:
+        kwargs["obsid_sched"] = args.obsid
+    if args.load_name:
+        kwargs["source"] = args.load_name
+
+    obss = kc.get_observations(**kwargs)
+    if len(obss) == 1:
+        return obss[0]
+    else:
+        raise NotUniqueObservationError(
+            f"found {len(obss)} observations (instead of one) for arguments {args}"
+        )
+
+
+def get_starcheck_url(
     opt: argparse.Namespace,
     args: Args,
-) -> None:
+) -> str:
     """
-    Open the Starcheck page for the given arguments.
+    Get the URL for the Starcheck page for the given arguments.
     """
+    if args.has_exact_args("load_name"):
+        load_name = args.load_name
+        obsid = None
+    else:
+        obs = get_observation(args, archive_only=opt.archive_only)
+        load_name = obs["source"]
+        obsid = obs.get("obsid_sched", obs["obsid"])
+
+    server = "occweb" if opt.occweb else "icxc"
+    url = parse_cm.paths.load_url_from_load_name(load_name, server=server)
+    url += "/starcheck.html"
+    if obsid is not None:
+        url += f"#obsid{obsid}"
+    return url
+
+
+def get_mica_url(opt: argparse.Namespace, args: Args) -> str:
+    """Get the URL for the MICA page for the given arguments."""
+    raise NotImplementedError("MICA URL generation is not implemented yet")
+
+
+def get_agasc_url(opt: argparse.Namespace, args: Args) -> str:
+    """Get the URL for the AGASC page for the given arguments."""
+    raise NotImplementedError("AGASC URL generation is not implemented yet")
+
+
+def get_star_history_url(opt: argparse.Namespace, args: Args) -> str:
+    """Get the URL for the Star History page for the given arguments."""
+    raise NotImplementedError("Star History URL generation is not implemented yet")
+
+
+def get_centroid_dashboard_url(opt: argparse.Namespace, args: Args) -> str:
+    """Get the URL for the Centroid Dashboard page for the given arguments."""
+    raise NotImplementedError(
+        "Centroid Dashboard URL generation is not implemented yet"
+    )
 
 
 def main() -> None:
@@ -232,12 +357,25 @@ def main() -> None:
     opt = parser.parse_args()
     args = get_arg_values(opt)
 
-    print(opt)
-    print(args)
-
     if opt.starcheck:
-        open_starcheck_page(opt, args)
+        func = get_starcheck_url
+    elif opt.mica:
+        func = get_mica_url
+    elif opt.agasc:
+        func = get_agasc_url
+    elif opt.star_history:
+        func = get_star_history_url
+    elif opt.centroid_dashboard:
+        func = get_centroid_dashboard_url
+    else:
+        raise ValueError("Expected exactly one content type option")
 
+    url = func(opt, args)
+
+    if opt.print_url:
+        print(url)
+    else:
+        webbrowser.open(url)
 
 if __name__ == "__main__":
     main()
