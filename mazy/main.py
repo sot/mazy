@@ -45,14 +45,15 @@ class Args:
 def get_opt() -> argparse.ArgumentParser:
     """Create the command-line parser used by ``mazy``.
 
-    The CLI accepts one or more positional tokens and classifies each token as
-    an obsid, AGASC ID, load name, or date. It also supports mutually
-    exclusive content location and content type switches.
+    The CLI accepts an initial ``page`` positional argument, followed by
+    optional positional tokens that are classified as obsid, AGASC ID, load
+    name, or date. It also supports mutually exclusive content location
+    switches.
 
     Examples
     --------
-    mazy 12312 MAR2422A 2024:001 --starcheck
-    mazy 12312 --agasc --occweb
+    mazy starcheck 12312 MAR2422A 2024:001 --print-url
+    mazy mica 12312 --occweb
 
     Returns
     -------
@@ -67,14 +68,20 @@ def get_opt() -> argparse.ArgumentParser:
         ),
         epilog=(
             "Examples:\n"
-            "  mazy MAR2422A --starcheck\n"
-            "  mazy 12312 --mica\n"
-            "  mazy 2024:001 --cent --local  # abbreviations OK"
+            "  mazy starcheck MAR2422A\n"
+            "  mazy mica 12312\n"
+            "  mazy centroid-dashboard 2024:001 --local"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
-        "args", nargs="+", help="Positional arguments: date, obsid, load_name, AGASC ID"
+        "page",
+        help="Content page name, for example: starcheck, mica, agasc",
+    )
+    parser.add_argument(
+        "args",
+        nargs="*",
+        help="Positional arguments: date, obsid, load_name, AGASC ID",
     )
     parser.add_argument(
         "--archive-only",
@@ -96,22 +103,6 @@ def get_opt() -> argparse.ArgumentParser:
     )
     content_location_group.add_argument(
         "--occweb", action="store_true", help="Use OCC web content"
-    )
-
-    content_type = parser.add_argument_group("Content type (choose one)")
-    mode_group = content_type.add_mutually_exclusive_group(required=True)
-    mode_group.add_argument(
-        "--starcheck", action="store_true", help="Open the Starcheck page"
-    )
-    mode_group.add_argument("--mica", action="store_true", help="Open the MICA page")
-    mode_group.add_argument("--agasc", action="store_true", help="Open the AGASC page")
-    mode_group.add_argument(
-        "--star-history", action="store_true", help="Open the Star History page"
-    )
-    mode_group.add_argument(
-        "--centroid-dashboard",
-        action="store_true",
-        help="Open the Centroid Dashboard page",
     )
 
     parser.add_argument("--version", action="version", version=__version__)
@@ -306,10 +297,7 @@ def get_observation(args: Args, *, archive_only=False) -> dict[str, Any]:
         )
 
 
-def get_starcheck_url(
-    opt: argparse.Namespace,
-    args: Args,
-) -> str:
+def get_starcheck_url(opt: argparse.Namespace, args: Args) -> str:
     """
     Get the URL for the Starcheck page for the given arguments.
     """
@@ -351,31 +339,34 @@ def get_centroid_dashboard_url(opt: argparse.Namespace, args: Args) -> str:
     )
 
 
+def get_page_url(page: str, opt: argparse.Namespace, args: Args) -> str:
+    """Get the URL for a content page for the given arguments."""
+    if page == "starcheck":
+        return get_starcheck_url(opt, args)
+    elif page == "mica":
+        return get_mica_url(opt, args)
+    elif page == "agasc":
+        return get_agasc_url(opt, args)
+    elif page == "star_history":
+        return get_star_history_url(opt, args)
+    elif page == "centroid_dashboard":
+        return get_centroid_dashboard_url(opt, args)
+    else:
+        raise ValueError(f"unknown page '{page}'")
+
+
 def main() -> None:
     """Run the command-line interface entry point."""
     parser = get_opt()
     opt = parser.parse_args()
     args = get_arg_values(opt)
-
-    if opt.starcheck:
-        func = get_starcheck_url
-    elif opt.mica:
-        func = get_mica_url
-    elif opt.agasc:
-        func = get_agasc_url
-    elif opt.star_history:
-        func = get_star_history_url
-    elif opt.centroid_dashboard:
-        func = get_centroid_dashboard_url
-    else:
-        raise ValueError("Expected exactly one content type option")
-
-    url = func(opt, args)
+    url = get_page_url(opt.page, opt, args)
 
     if opt.print_url:
         print(url)
     else:
         webbrowser.open(url)
+
 
 if __name__ == "__main__":
     main()
