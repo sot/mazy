@@ -227,16 +227,6 @@ def get_arg_values(opt: argparse.Namespace) -> Args:
         if not match:
             raise ValueError(f"Unrecognized argument: {arg}")
 
-    # if opt.starcheck:
-    #     # date
-    #     # obsid
-    #     # obsid, load_name
-    #     # load_name
-    #     # NOT agasc_id
-    #     check_args(
-    #         args, [("date",), ("obsid",), ("obsid", "load_name"), ("load_name",)]
-    #     )
-
     return args
 
 
