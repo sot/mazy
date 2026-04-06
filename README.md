@@ -13,7 +13,7 @@ selected content resource. Note that a date must be provided in a string format 
 CXC seconds are not accepted).
 
 positional arguments:
-  resource        Content resource name: starcheck, mica, agasc, star_history, centroid_dashboard, chaser
+  resource        Content resource name: starcheck, mica, agasc, star-history, centroid-dashboard, chaser
   args            Positional arguments: date, obsid, load_name, AGASC ID
 
 options:
@@ -31,8 +31,8 @@ Content location (choose one, default=cxc/icxc):
 ```
 mazy starcheck APR2924A --occweb
 mazy mica 43474
-mazy centroid_dashboard 2024:125:06:22:32 --local
-mazy star_history 701368208
+mazy centroid-dashboard 2024:125:06:22:32 --local
+mazy star-history 701368208
 mazy agasc 701368208
 mazy chaser 43474
 ```

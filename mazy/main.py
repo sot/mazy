@@ -57,7 +57,7 @@ def get_opt() -> argparse.ArgumentParser:
     --------
     mazy starcheck 43474 APR2924A 2024:125:06:22:32 --print-url
     mazy mica 43474 --occweb
-    mazy centroid_dashboard 2024:125:06:22:32 --local
+    mazy centroid-dashboard 2024:125:06:22:32 --local
 
     Returns
     -------
@@ -74,8 +74,8 @@ def get_opt() -> argparse.ArgumentParser:
             "Examples:\n"
             "  mazy starcheck APR2924A --occweb\n"
             "  mazy mica 43474\n"
-            "  mazy centroid_dashboard 2024:125:06:22:32 --local\n"
-            "  mazy star_history 701368208\n"
+            "  mazy centroid-dashboard 2024:125:06:22:32 --local\n"
+            "  mazy star-history 701368208\n"
             "  mazy agasc 701368208\n"
             "  mazy chaser 43474\n"
             "  mazy fot-daily-plots 2024:125:06:22:32"
@@ -85,8 +85,8 @@ def get_opt() -> argparse.ArgumentParser:
     parser.add_argument(
         "resource",
         help=(
-            "Content resource name: starcheck, mica, agasc, star_history, "
-            "centroid_dashboard, chaser, fot-daily-plots"
+            "Content resource name: starcheck, mica, agasc, star-history, "
+            "centroid-dashboard, chaser, fot-daily-plots"
         ),
     )
     parser.add_argument(
@@ -476,11 +476,10 @@ def get_resource_url(resource: str, opt: argparse.Namespace, args: Args) -> str:
         "starcheck": get_starcheck_url,
         "mica": get_mica_url,
         "agasc": get_agasc_url,
-        "star_history": get_star_history_url,
-        "centroid_dashboard": get_centroid_dashboard_url,
+        "star-history": get_star_history_url,
+        "centroid-dashboard": get_centroid_dashboard_url,
         "chaser": get_chaser_url,
         "fot-daily-plots": get_fot_daily_plots_url,
-        "fot_daily_plots": get_fot_daily_plots_url,
     }
 
     try:
