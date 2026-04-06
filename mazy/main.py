@@ -84,7 +84,7 @@ def get_opt() -> argparse.ArgumentParser:
     )
 
     content_location = parser.add_argument_group(
-        "Content location (choose one, default=cxc/icxc)"
+        "Content location (choose one to override resource default locations)"
     )
     content_location_group = content_location.add_mutually_exclusive_group()
     content_location_group.add_argument(
@@ -92,6 +92,9 @@ def get_opt() -> argparse.ArgumentParser:
     )
     content_location_group.add_argument(
         "--occweb", action="store_true", help="Use OCC web content"
+    )
+    content_location_group.add_argument(
+        "--cxc", action="store_true", help="Use CXC web content"
     )
 
     parser.add_argument("--version", action="version", version=__version__)
@@ -182,6 +185,7 @@ class ResourceBase:
 
     name: str | None = None
     subclasses: dict = {}
+    locations: tuple[str, ...] = ()
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -200,6 +204,7 @@ class ResourceBase:
         return has and not_has_rest
 
     def __post_init__(self):
+        self.check_locations()
         field_names = [f.name for f in dataclasses.fields(self)]
         parsers = [
             (name, parser_cls.parse)
@@ -219,6 +224,14 @@ class ResourceBase:
                     f"{value} is not an allowed input for {self.name} resource"
                 )
 
+    def check_locations(self) -> None:
+        """Validate requested location flags against ``self.locations``."""
+        for location in ("occweb", "cxc", "local"):
+            if getattr(self.opt, location, False) and location not in self.locations:
+                raise ValueError(
+                    f"{self.name} resource is not available on {location}"
+                )
+
     def get_url(self) -> str:
         """Get URL for the resource."""
         raise NotImplementedError
@@ -226,6 +239,7 @@ class ResourceBase:
 
 @dataclasses.dataclass
 class ResourceStarcheck(ResourceBase):
+    locations: tuple[str, ...] = ("occweb", "cxc")
     opt: argparse.Namespace | None = None
     obsid: int | None = None
     load_name: str | None = None
@@ -246,15 +260,7 @@ class ResourceStarcheck(ResourceBase):
             load_name = obs["source"]
             obsid = obs.get("obsid_sched", obs["obsid"])
 
-        if self.opt.occweb:
-            server = "occweb"
-        elif self.opt.local:
-            # Note: using file:///path_to_starcheck/starcheck.html#obsid<obsid> does not
-            # work. The #obsid<obsid> bit gets stripped on Mac because the application
-            # is looking for a pure file name (according to AI).
-            raise ValueError("local server not allowed for starcheck")
-        else:
-            server = "icxc"
+        server = "icxc" if self.opt.cxc else "occweb"
 
         url = parse_cm.paths.load_url_from_load_name(load_name, server=server)
         url += "/starcheck.html"
@@ -310,6 +316,7 @@ class ResourceMica(ResourceBase):
     Allowed args: date, obsid, load_name
     """
 
+    locations: tuple[str, ...] = ("cxc",)
     opt: argparse.Namespace | None = None
     date: CxoTime | None = None
     obsid: int | None = None
@@ -343,14 +350,12 @@ class ResourceAgasc(ResourceBase):
     Allowed args: agasc_id
     """
 
+    locations: tuple[str, ...] = ("cxc",)
     opt: argparse.Namespace | None = None
     agasc_id: int | None = None
 
     def get_url(self) -> str:
         """Get the URL for the AGASC page for the AGASC ID."""
-        if self.opt.local or self.opt.occweb:
-            raise ValueError("AGASC page is not available on local or OCCweb")
-
         if self.agasc_id is None:
             raise ValueError("agasc_id must be specified to generate an AGASC URL")
         prefix = f"{self.agasc_id:010d}"[:3]
@@ -367,14 +372,12 @@ class ResourceStarHistory(ResourceBase):
     Allowed args: agasc_id
     """
 
+    locations: tuple[str, ...] = ("cxc",)
     opt: argparse.Namespace | None = None
     agasc_id: int | None = None
 
     def get_url(self) -> str:
         """Get the URL for the Star History resource for AGASC ID."""
-        if self.opt.local or self.opt.occweb:
-            raise ValueError("AGASC page is not available on local or OCCweb")
-
         if self.agasc_id is None:
             raise ValueError(
                 "agasc_id must be specified to generate a Star History URL"
@@ -389,6 +392,7 @@ class ResourceCentroidDashboard(ResourceBase):
     Allowed args: date, obsid, load_name
     """
 
+    locations: tuple[str, ...] = ("cxc", "local")
     opt: argparse.Namespace | None = None
     date: CxoTime | None = None
     obsid: int | None = None
@@ -411,9 +415,6 @@ class ResourceCentroidDashboard(ResourceBase):
 
         *_, load_year = parse_cm.parse_load_name(load_name)
 
-        if self.opt.occweb:
-            raise ValueError("no centroid dashboard on OCCweb")
-
         if self.opt.local:
             out = (
                 f"file://{SKA}/data/centroid_dashboard/centroid_reports/"
@@ -434,6 +435,7 @@ class ResourceChaser(ResourceBase):
     Allowed args: obsid, date, load_name
     """
 
+    locations: tuple[str, ...] = ("cxc",)
     opt: argparse.Namespace | None = None
     obsid: int | None = None
     date: CxoTime | None = None
@@ -441,9 +443,6 @@ class ResourceChaser(ResourceBase):
 
     def get_url(self) -> str:
         """Get the URL for the Chaser resource for the given arguments."""
-        if self.opt.local or self.opt.occweb:
-            raise ValueError("Chaser is not available on local or OCCweb")
-
         if self.obsid is None:
             obs = get_observation(
                 date=self.date,
@@ -468,6 +467,7 @@ class ResourceFotDailyPlots(ResourceBase):
     Allowed args: date, obsid, load_name
     """
 
+    locations: tuple[str, ...] = ("occweb",)
     opt: argparse.Namespace | None = None
     date: CxoTime | None = None
     obsid: int | None = None
@@ -475,9 +475,6 @@ class ResourceFotDailyPlots(ResourceBase):
 
     def get_url(self) -> str:
         """Get the URL for the FOT daily plots resource for the given arguments."""
-        if self.opt.local:
-            raise ValueError("fot-daily-plots is not available on local")
-
         if self.obsid is not None:
             obs = get_observation(
                 date=self.date,
