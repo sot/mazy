@@ -14,6 +14,12 @@ from mazy import __version__
 
 SKA = os.environ["SKA"]
 
+# TODO:
+# - Support test loads:
+#     - On HEAD disk /data/mpcrit1/mplogs/OFLS_testing/2026/JAN2626
+#     - URL https://icxc.harvard.edu/mp/mplogs/OFLS_testing/2026/JAN2626/scheduled_t/JAN2626T.html
+#     - Where do FOT test loads live? Any network-visible location?
+
 
 def get_opt() -> argparse.ArgumentParser:
     """Create the command-line parser used by ``mazy``.
@@ -22,6 +28,8 @@ def get_opt() -> argparse.ArgumentParser:
     optional positional tokens that are classified as obsid, AGASC ID, load
     name, or date. It also supports mutually exclusive content location
     switches.
+
+    The ``resource`` positional argument can be shortened to any unique abbreviation.
 
     Examples
     --------
@@ -48,21 +56,21 @@ def get_opt() -> argparse.ArgumentParser:
             "  mazy star-history 701368208\n"
             "  mazy agasc 701368208\n"
             "  mazy chaser 43474\n"
-            "  mazy fot-daily-plots 2024:125:06:22:32"
+            "  mazy fot-daily-plots 2024:125:06:22:32\n"
+            "  mazy fot 2024:125:06:22:32  # abbreviation"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    resources = ", ".join(ResourceBase.subclasses)
+    positional_args = ", ".join(ParserBase.subclasses)
     parser.add_argument(
         "resource",
-        help=(
-            "Content resource name: starcheck, mica, agasc, star-history, "
-            "centroid-dashboard, chaser, fot-daily-plots"
-        ),
+        help=f"Content resource name: {resources}",
     )
     parser.add_argument(
         "args",
         nargs="*",
-        help="Positional arguments: date, obsid, load_name, AGASC ID",
+        help=f"Positional arguments: {positional_args}",
     )
     parser.add_argument(
         "--archive-only",
@@ -355,7 +363,9 @@ class ResourceStarHistory(ResourceBase):
             raise ValueError("AGASC page is not available on local or OCCweb")
 
         if self.agasc_id is None:
-            raise ValueError("agasc_id must be specified to generate a Star History URL")
+            raise ValueError(
+                "agasc_id must be specified to generate a Star History URL"
+            )
         return f"https://kadi.cfa.harvard.edu/star_hist/?agasc_id={self.agasc_id}"
 
 
@@ -466,27 +476,27 @@ class ResourceFotDailyPlots(ResourceBase):
         )
 
 
-def get_resource_url(resource: str, opt: argparse.Namespace) -> str:
-    """Get the URL for a content resource for the given arguments.
-
-    TODO:
-    - Support test loads:
-        - On HEAD disk /data/mpcrit1/mplogs/OFLS_testing/2026/JAN2626
-        - URL https://icxc.harvard.edu/mp/mplogs/OFLS_testing/2026/JAN2626/scheduled_t/JAN2626T.html
-        - Where do FOT test loads live? Any network-visible location?
-    """
-    try:
-        resource_cls = ResourceBase.subclasses[resource]
-    except KeyError as err:
-        raise ValueError(f"unknown resource '{resource}'") from err
-    return resource_cls(opt=opt).get_url()
-
-
 def main() -> None:
     """Run the command-line interface entry point."""
     parser = get_opt()
     opt = parser.parse_args()
-    url = get_resource_url(opt.resource, opt)
+
+    # Allow for unique abbreviations of resources
+    matching_resources = [
+        name for name in ResourceBase.subclasses if name.startswith(opt.resource)
+    ]
+    if len(matching_resources) == 1:
+        opt.resource = matching_resources[0]
+
+    try:
+        resource_cls = ResourceBase.subclasses[opt.resource]
+    except KeyError:
+        raise ValueError(
+            f"unknown resource '{opt.resource}', "
+            f"available resources are: {list(ResourceBase.subclasses)}"
+        ) from None
+
+    url = resource_cls(opt=opt).get_url()
 
     if opt.print_url:
         print(url)
