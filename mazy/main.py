@@ -87,7 +87,10 @@ def get_opt() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "resource",
-        help="Content resource name, for example: starcheck, mica, agasc, chaser",
+        help=(
+            "Content resource name: starcheck, mica, agasc, star_history, "
+            "centroid_dashboard, chaser"
+        ),
     )
     parser.add_argument(
         "args",
