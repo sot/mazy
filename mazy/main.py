@@ -199,15 +199,6 @@ class ResourceBase:
         cls.name = re.sub(r"([a-z0-9])([A-Z])", r"\1-\2", step1).lower()
         ResourceBase.subclasses[cls.name] = cls
 
-    def has_exact_args(self, *args: tuple[str, ...]):
-        """True if each of `args` attributes is not None and others are None"""
-        has = all(getattr(self, arg) is not None for arg in args)
-        not_has_rest = all(
-            getattr(self, field) is None
-            for field in set(self.__dataclass_fields__) - set(args)
-        )
-        return has and not_has_rest
-
     def __post_init__(self):
         self.check_locations()
         field_names = [f.name for f in dataclasses.fields(self)]
@@ -233,9 +224,7 @@ class ResourceBase:
         """Validate requested location flags against ``self.locations``."""
         for location in ("occweb", "cxc", "local"):
             if self.opt.get(location) and location not in self.locations:
-                raise ValueError(
-                    f"{self.name} resource is not available on {location}"
-                )
+                raise ValueError(f"{self.name} resource is not available on {location}")
 
     def get_url(self) -> str:
         """Get URL for the resource."""
@@ -251,7 +240,7 @@ class ResourceStarcheck(ResourceBase):
 
     def get_url(self) -> str:
         """Get the URL for the Starcheck resource for the given arguments."""
-        if self.has_exact_args("load_name"):
+        if self.load_name and self.obsid is None and self.date is None:
             load_name = self.load_name
             obsid = None
         else:
