@@ -45,10 +45,6 @@ class Args:
         return has and not_has_rest
 
 
-# TODO
-# https://cda.cfa.harvard.edu/chaser/startViewer.do?menuItem=details&obsid=31041
-
-
 def get_opt() -> argparse.ArgumentParser:
     """Create the command-line parser used by ``mazy``.
 
@@ -81,7 +77,8 @@ def get_opt() -> argparse.ArgumentParser:
             "  mazy centroid_dashboard 2024:125:06:22:32 --local\n"
             "  mazy star_history 701368208\n"
             "  mazy agasc 701368208\n"
-            "  mazy chaser 43474"
+            "  mazy chaser 43474\n"
+            "  mazy fot-daily-plots 2024:125:06:22:32"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -89,7 +86,7 @@ def get_opt() -> argparse.ArgumentParser:
         "resource",
         help=(
             "Content resource name: starcheck, mica, agasc, star_history, "
-            "centroid_dashboard, chaser"
+            "centroid_dashboard, chaser, fot-daily-plots"
         ),
     )
     parser.add_argument(
@@ -436,6 +433,36 @@ def get_chaser_url(opt: argparse.Namespace, args: Args) -> str:
     )
 
 
+def get_fot_daily_plots_url(opt: argparse.Namespace, args: Args) -> str:
+    """Get the URL for the FOT daily plots resource for the given arguments.
+
+    Like:
+    https://occweb.cfa.harvard.edu/occweb/FOT/engineering/reports/dailies/2024/MAY/may04_125/
+    """
+    if opt.local:
+        raise ValueError("fot-daily-plots is not available on local")
+
+    if args.obsid is not None:
+        obs = get_observation(args, archive_only=opt.archive_only)
+        date = CxoTime(obs["obs_start"])
+    elif args.date is not None:
+        date = CxoTime(args.date)
+    else:
+        raise ValueError("fot-daily-plots requires either obsid or date")
+
+    dt = date.datetime
+    year = dt.year
+    month_upper = dt.strftime("%b").upper()
+    month_lower = dt.strftime("%b").lower()
+    day = dt.day
+    doy = dt.timetuple().tm_yday
+
+    return (
+        "https://occweb.cfa.harvard.edu/occweb/FOT/engineering/reports/dailies/"
+        f"{year}/{month_upper}/{month_lower}{day:02d}_{doy:03d}/"
+    )
+
+
 def get_resource_url(resource: str, opt: argparse.Namespace, args: Args) -> str:
     """Get the URL for a content resource for the given arguments.
 
@@ -445,20 +472,22 @@ def get_resource_url(resource: str, opt: argparse.Namespace, args: Args) -> str:
         - URL https://icxc.harvard.edu/mp/mplogs/OFLS_testing/2026/JAN2626/scheduled_t/JAN2626T.html
         - Where do FOT test loads live? Any network-visible location?
     """
-    if resource == "starcheck":
-        return get_starcheck_url(opt, args)
-    elif resource == "mica":
-        return get_mica_url(opt, args)
-    elif resource == "agasc":
-        return get_agasc_url(opt, args)
-    elif resource == "star_history":
-        return get_star_history_url(opt, args)
-    elif resource == "centroid_dashboard":
-        return get_centroid_dashboard_url(opt, args)
-    elif resource == "chaser":
-        return get_chaser_url(opt, args)
-    else:
-        raise ValueError(f"unknown resource '{resource}'")
+    resource_funcs = {
+        "starcheck": get_starcheck_url,
+        "mica": get_mica_url,
+        "agasc": get_agasc_url,
+        "star_history": get_star_history_url,
+        "centroid_dashboard": get_centroid_dashboard_url,
+        "chaser": get_chaser_url,
+        "fot-daily-plots": get_fot_daily_plots_url,
+        "fot_daily_plots": get_fot_daily_plots_url,
+    }
+
+    try:
+        func = resource_funcs[resource]
+    except KeyError as err:
+        raise ValueError(f"unknown resource '{resource}'") from err
+    return func(opt, args)
 
 
 def main() -> None:
