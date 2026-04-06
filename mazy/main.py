@@ -45,6 +45,10 @@ class Args:
         return has and not_has_rest
 
 
+# TODO
+# https://cda.cfa.harvard.edu/chaser/startViewer.do?menuItem=details&obsid=31041
+
+
 def get_opt() -> argparse.ArgumentParser:
     """Create the command-line parser used by ``mazy``.
 
@@ -76,13 +80,14 @@ def get_opt() -> argparse.ArgumentParser:
             "  mazy mica 43474\n"
             "  mazy centroid_dashboard 2024:125:06:22:32 --local\n"
             "  mazy star_history 701368208\n"
-            "  mazy agasc 701368208"
+            "  mazy agasc 701368208\n"
+            "  mazy chaser 43474"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "resource",
-        help="Content resource name, for example: starcheck, mica, agasc",
+        help="Content resource name, for example: starcheck, mica, agasc, chaser",
     )
     parser.add_argument(
         "args",
@@ -284,7 +289,6 @@ def get_observation(args: Args, *, archive_only=False) -> dict[str, Any]:
     if args.load_name:
         kwargs["source"] = args.load_name
 
-    print(kwargs)
     obss = kc.get_observations(**kwargs)
     if len(obss) == 1:
         return obss[0]
@@ -306,7 +310,16 @@ def get_starcheck_url(opt: argparse.Namespace, args: Args) -> str:
         load_name = obs["source"]
         obsid = obs.get("obsid_sched", obs["obsid"])
 
-    server = "occweb" if opt.occweb else "icxc"
+    if opt.occweb:
+        server = "occweb"
+    elif opt.local:
+        # Note: using file:///path_to_starcheck/starcheck.html#obsid<obsid> does not
+        # work. The #obsid<obsid> bit gets stripped on Mac because the application
+        # is looking for a pure file name (according to AI).
+        raise ValueError("local server not allowed for starcheck")
+    else:
+        server = "icxc"
+
     url = parse_cm.paths.load_url_from_load_name(load_name, server=server)
     url += "/starcheck.html"
     if obsid is not None:
@@ -399,6 +412,27 @@ def get_centroid_dashboard_url(opt: argparse.Namespace, args: Args) -> str:
     return out
 
 
+def get_chaser_url(opt: argparse.Namespace, args: Args) -> str:
+    """Get the URL for the Chaser resource for the given arguments.
+
+    Like:
+    https://cda.cfa.harvard.edu/chaser/startViewer.do?menuItem=details&obsid=31041
+    """
+    if opt.local or opt.occweb:
+        raise ValueError("Chaser is not available on local or OCCweb")
+
+    if args.obsid is None:
+        obs = get_observation(args, archive_only=opt.archive_only)
+        obsid = obs.get("obsid_sched", obs["obsid"])
+    else:
+        obsid = args.obsid
+
+    return (
+        "https://cda.cfa.harvard.edu/chaser/startViewer.do"
+        f"?menuItem=details&obsid={obsid}"
+    )
+
+
 def get_resource_url(resource: str, opt: argparse.Namespace, args: Args) -> str:
     """Get the URL for a content resource for the given arguments.
 
@@ -418,6 +452,8 @@ def get_resource_url(resource: str, opt: argparse.Namespace, args: Args) -> str:
         return get_star_history_url(opt, args)
     elif resource == "centroid_dashboard":
         return get_centroid_dashboard_url(opt, args)
+    elif resource == "chaser":
+        return get_chaser_url(opt, args)
     else:
         raise ValueError(f"unknown resource '{resource}'")
 
