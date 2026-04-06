@@ -3,7 +3,7 @@ import dataclasses
 import os
 import re
 import webbrowser
-from typing import Any
+from typing import Any, ClassVar
 
 import astropy.units as u
 import kadi.commands as kc
@@ -21,7 +21,7 @@ SKA = os.environ["SKA"]
 #     - Where do FOT test loads live? Any network-visible location?
 
 
-def get_opt() -> argparse.ArgumentParser:
+def get_opt_parser() -> argparse.ArgumentParser:
     """Create the command-line parser used by ``mazy``.
 
     The CLI accepts an initial ``resource`` positional argument, followed by
@@ -174,18 +174,23 @@ class ParserObsid(ParserBase):
         return out
 
 
+@dataclasses.dataclass
 class ResourceBase:
     """Base class for Resources
 
     Attributes
     ----------
-    opt : argparse.ArgumentParser
-        Input options
+    opt : dict[str, Any]
+        Input options as a plain dictionary.
+    args : list[str]
+        Positional arguments to parse.
     """
 
-    name: str | None = None
-    subclasses: dict = {}
+    name: ClassVar[str | None] = None
+    subclasses: ClassVar[dict[str, type["ResourceBase"]]] = {}
     locations: tuple[str, ...] = ()
+    opt: dict[str, Any] = dataclasses.field(default_factory=dict)
+    args: list[str] = dataclasses.field(default_factory=list)
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -212,7 +217,7 @@ class ResourceBase:
             if name in field_names
         ]
 
-        for value in self.opt.args:
+        for value in self.args:
             for parser_name, parser_func in parsers:
                 if getattr(self, parser_name) is not None:
                     continue
@@ -227,7 +232,7 @@ class ResourceBase:
     def check_locations(self) -> None:
         """Validate requested location flags against ``self.locations``."""
         for location in ("occweb", "cxc", "local"):
-            if getattr(self.opt, location, False) and location not in self.locations:
+            if self.opt.get(location) and location not in self.locations:
                 raise ValueError(
                     f"{self.name} resource is not available on {location}"
                 )
@@ -240,7 +245,6 @@ class ResourceBase:
 @dataclasses.dataclass
 class ResourceStarcheck(ResourceBase):
     locations: tuple[str, ...] = ("occweb", "cxc")
-    opt: argparse.Namespace | None = None
     obsid: int | None = None
     load_name: str | None = None
     date: CxoTime | None = None
@@ -255,12 +259,12 @@ class ResourceStarcheck(ResourceBase):
                 date=self.date,
                 obsid=self.obsid,
                 load_name=self.load_name,
-                archive_only=self.opt.archive_only,
+                archive_only=self.opt.get("archive_only"),
             )
             load_name = obs["source"]
             obsid = obs.get("obsid_sched", obs["obsid"])
 
-        server = "icxc" if self.opt.cxc else "occweb"
+        server = "icxc" if self.opt.get("cxc") else "occweb"
 
         url = parse_cm.paths.load_url_from_load_name(load_name, server=server)
         url += "/starcheck.html"
@@ -317,7 +321,6 @@ class ResourceMica(ResourceBase):
     """
 
     locations: tuple[str, ...] = ("cxc",)
-    opt: argparse.Namespace | None = None
     date: CxoTime | None = None
     obsid: int | None = None
     load_name: str | None = None
@@ -329,7 +332,7 @@ class ResourceMica(ResourceBase):
                 date=self.date,
                 obsid=self.obsid,
                 load_name=self.load_name,
-                archive_only=self.opt.archive_only,
+                archive_only=self.opt.get("archive_only"),
             )
             load_name = obs["source"]
             obsid = obs.get("obsid_sched", obs["obsid"])
@@ -351,7 +354,6 @@ class ResourceAgasc(ResourceBase):
     """
 
     locations: tuple[str, ...] = ("cxc",)
-    opt: argparse.Namespace | None = None
     agasc_id: int | None = None
 
     def get_url(self) -> str:
@@ -373,7 +375,6 @@ class ResourceStarHistory(ResourceBase):
     """
 
     locations: tuple[str, ...] = ("cxc",)
-    opt: argparse.Namespace | None = None
     agasc_id: int | None = None
 
     def get_url(self) -> str:
@@ -393,7 +394,6 @@ class ResourceCentroidDashboard(ResourceBase):
     """
 
     locations: tuple[str, ...] = ("cxc", "local")
-    opt: argparse.Namespace | None = None
     date: CxoTime | None = None
     obsid: int | None = None
     load_name: str | None = None
@@ -405,7 +405,7 @@ class ResourceCentroidDashboard(ResourceBase):
                 date=self.date,
                 obsid=self.obsid,
                 load_name=self.load_name,
-                archive_only=self.opt.archive_only,
+                archive_only=self.opt.get("archive_only"),
             )
             load_name = obs["source"]
             obsid = obs.get("obsid_sched", obs["obsid"])
@@ -415,7 +415,7 @@ class ResourceCentroidDashboard(ResourceBase):
 
         *_, load_year = parse_cm.parse_load_name(load_name)
 
-        if self.opt.local:
+        if self.opt.get("local"):
             out = (
                 f"file://{SKA}/data/centroid_dashboard/centroid_reports/"
                 f"{load_year}/{load_name}/{obsid}/index.html"
@@ -436,7 +436,6 @@ class ResourceChaser(ResourceBase):
     """
 
     locations: tuple[str, ...] = ("cxc",)
-    opt: argparse.Namespace | None = None
     obsid: int | None = None
     date: CxoTime | None = None
     load_name: str | None = None
@@ -448,7 +447,7 @@ class ResourceChaser(ResourceBase):
                 date=self.date,
                 obsid=self.obsid,
                 load_name=self.load_name,
-                archive_only=self.opt.archive_only,
+                archive_only=self.opt.get("archive_only"),
             )
             obsid = obs.get("obsid_sched", obs["obsid"])
         else:
@@ -468,7 +467,6 @@ class ResourceFotDailyPlots(ResourceBase):
     """
 
     locations: tuple[str, ...] = ("occweb",)
-    opt: argparse.Namespace | None = None
     date: CxoTime | None = None
     obsid: int | None = None
     load_name: str | None = None
@@ -480,7 +478,7 @@ class ResourceFotDailyPlots(ResourceBase):
                 date=self.date,
                 obsid=self.obsid,
                 load_name=self.load_name,
-                archive_only=self.opt.archive_only,
+                archive_only=self.opt.get("archive_only"),
             )
             date = CxoTime(obs["obs_start"])
         elif self.date is not None:
@@ -503,27 +501,29 @@ class ResourceFotDailyPlots(ResourceBase):
 
 def main() -> None:
     """Run the command-line interface entry point."""
-    parser = get_opt()
+    parser = get_opt_parser()
     opt = parser.parse_args()
+    resource = opt.resource
+    opt_dict = vars(opt)
 
     # Allow for unique abbreviations of resources
     matching_resources = [
-        name for name in ResourceBase.subclasses if name.startswith(opt.resource)
+        name for name in ResourceBase.subclasses if name.startswith(resource)
     ]
     if len(matching_resources) == 1:
-        opt.resource = matching_resources[0]
+        opt_dict["resource"] = matching_resources[0]
 
     try:
-        resource_cls = ResourceBase.subclasses[opt.resource]
+        resource_cls = ResourceBase.subclasses[resource]
     except KeyError:
         raise ValueError(
-            f"unknown resource '{opt.resource}', "
+            f"unknown resource '{resource}', "
             f"available resources are: {list(ResourceBase.subclasses)}"
         ) from None
 
-    url = resource_cls(opt=opt).get_url()
+    url = resource_cls(args=opt.args, opt=opt_dict).get_url()
 
-    if opt.print_url:
+    if opt_dict.get("print_url"):
         print(url)
     else:
         webbrowser.open(url)
