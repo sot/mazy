@@ -1,7 +1,8 @@
 import argparse
+import dataclasses
 import os
+import re
 import webbrowser
-from dataclasses import dataclass
 from typing import Any, Callable
 
 import astropy.units as u
@@ -14,7 +15,7 @@ from mazy import __version__
 SKA = os.environ["SKA"]
 
 
-@dataclass
+@dataclasses.dataclass
 class Args:
     """Parsed positional argument values.
 
@@ -196,6 +197,94 @@ def as_obsid(arg: str) -> int | None:
     except Exception:
         out = None
     return out
+
+
+PARSERS = {
+    "date": as_date,
+    "agasc_id": as_agasc_id,
+    "obsid": as_obsid,
+    "load_name": as_load_name,
+}
+
+
+class ResourceBase:
+    """Base class for Resources
+
+    Attributes
+    ----------
+    opt : argparse.ArgumentParser
+        Input options
+    """
+
+    name: str | None = None
+    subclasses: dict = {}
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        base_name = cls.__name__[len("Resource") :]
+        step1 = re.sub(r"(.)([A-Z][a-z]+)", r"\1-\2", base_name)
+        cls.name = re.sub(r"([a-z0-9])([A-Z])", r"\1-\2", step1).lower()
+        ResourceBase.subclasses[cls.name] = cls
+
+    def has_exact_args(self, *args: tuple[str, ...]):
+        """True if each of `args` attributes is not None and others are None"""
+        has = all(getattr(self, arg) is not None for arg in args)
+        not_has_rest = all(
+            getattr(self, field) is None
+            for field in set(self.__dataclass_fields__) - set(args)
+        )
+        return has and not_has_rest
+
+    def __post_init__(self):
+        field_names = [f.name for f in dataclasses.fields(self)]
+        parsers = {name: func for name, func in PARSERS.items() if name in field_names}
+
+        for value in self.opt.args:
+            for parser_name, parser_func in parsers.items():
+                if (value_parsed := parser_func(value)) is not None:
+                    setattr(self, parser_name, value_parsed)
+                    break
+            else:
+                raise ValueError(
+                    f"{value} is not an allowed input for {self.name} resource"
+                )
+
+
+@dataclasses.dataclass
+class ResourceStarcheck(ResourceBase):
+    opt: argparse.ArgumentParser | None = None
+    obsid: int | None = None
+    load_name: str | None = None
+    date: CxoTime | None = None
+
+    def get_url(self):
+        """
+        Get the URL for the Starcheck resource for the given arguments.
+        """
+        if self.has_exact_args("load_name"):
+            load_name = self.load_name
+            obsid = None
+        else:
+            obs = get_observation(self, archive_only=self.opt.archive_only)
+            load_name = obs["source"]
+            obsid = obs.get("obsid_sched", obs["obsid"])
+
+        if self.opt.occweb:
+            server = "occweb"
+        elif self.opt.local:
+            # Note: using file:///path_to_starcheck/starcheck.html#obsid<obsid> does not
+            # work. The #obsid<obsid> bit gets stripped on Mac because the application
+            # is looking for a pure file name (according to AI).
+            raise ValueError("local server not allowed for starcheck")
+        else:
+            server = "icxc"
+
+        url = parse_cm.paths.load_url_from_load_name(load_name, server=server)
+        url += "/starcheck.html"
+        if obsid is not None:
+            url += f"#obsid{obsid}"
+
+        return url
 
 
 def get_arg_values(opt: argparse.Namespace) -> Args:
