@@ -3,7 +3,7 @@ import dataclasses
 import os
 import re
 import webbrowser
-from typing import Any, Callable
+from typing import Any
 
 import astropy.units as u
 import kadi.commands as kc
@@ -13,37 +13,6 @@ from cxotime import CxoTime
 from mazy import __version__
 
 SKA = os.environ["SKA"]
-
-
-@dataclasses.dataclass
-class Args:
-    """Parsed positional argument values.
-
-    Attributes
-    ----------
-    date : CxoTime or None
-        Parsed date argument.
-    obsid : int or None
-        Parsed observation ID.
-    agasc_id : int or None
-        Parsed AGASC ID.
-    load_name : str or None
-        Parsed load name.
-    """
-
-    date: CxoTime | None = None
-    obsid: int | None = None
-    agasc_id: int | None = None
-    load_name: str | None = None
-
-    def has_exact_args(self, *args: tuple[str, ...]):
-        """True if each of `args` attributes is not None and others are None"""
-        has = all(getattr(self, arg) is not None for arg in args)
-        not_has_rest = all(
-            getattr(self, field) is None
-            for field in set(self.__dataclass_fields__) - set(args)
-        )
-        return has and not_has_rest
 
 
 def get_opt() -> argparse.ArgumentParser:
@@ -199,12 +168,12 @@ def as_obsid(arg: str) -> int | None:
     return out
 
 
-PARSERS = {
-    "date": as_date,
-    "agasc_id": as_agasc_id,
-    "obsid": as_obsid,
-    "load_name": as_load_name,
-}
+PARSERS: list[tuple[str, Any]] = [
+    ("obsid", as_obsid),
+    ("agasc_id", as_agasc_id),
+    ("load_name", as_load_name),
+    ("date", as_date),
+]
 
 
 class ResourceBase:
@@ -237,10 +206,12 @@ class ResourceBase:
 
     def __post_init__(self):
         field_names = [f.name for f in dataclasses.fields(self)]
-        parsers = {name: func for name, func in PARSERS.items() if name in field_names}
+        parsers = [(name, func) for name, func in PARSERS if name in field_names]
 
         for value in self.opt.args:
-            for parser_name, parser_func in parsers.items():
+            for parser_name, parser_func in parsers:
+                if getattr(self, parser_name) is not None:
+                    continue
                 if (value_parsed := parser_func(value)) is not None:
                     setattr(self, parser_name, value_parsed)
                     break
@@ -249,18 +220,20 @@ class ResourceBase:
                     f"{value} is not an allowed input for {self.name} resource"
                 )
 
+    def get_url(self) -> str:
+        """Get URL for the resource."""
+        raise NotImplementedError
+
 
 @dataclasses.dataclass
 class ResourceStarcheck(ResourceBase):
-    opt: argparse.ArgumentParser | None = None
+    opt: argparse.Namespace | None = None
     obsid: int | None = None
     load_name: str | None = None
     date: CxoTime | None = None
 
-    def get_url(self):
-        """
-        Get the URL for the Starcheck resource for the given arguments.
-        """
+    def get_url(self) -> str:
+        """Get the URL for the Starcheck resource for the given arguments."""
         if self.has_exact_args("load_name"):
             load_name = self.load_name
             obsid = None
@@ -287,272 +260,222 @@ class ResourceStarcheck(ResourceBase):
         return url
 
 
-def get_arg_values(opt: argparse.Namespace) -> Args:
-    """Match free-form CLI arguments to known value types.
-
-    Parameters
-    ----------
-    opt : argparse.Namespace
-        Parsed command-line options with positional ``args``.
-
-    Returns
-    -------
-    Args
-        Dataclass containing ``date``, ``obsid``, ``agasc_id``, and
-        ``load_name``.
-
-    Raises
-    ------
-    ValueError
-        Raised when any positional argument cannot be matched.
-    """
-    args = Args()
-    matchers: list[tuple[str, Callable[[str], CxoTime | int | str | None]]] = [
-        ("obsid", as_obsid),
-        ("agasc_id", as_agasc_id),
-        ("load_name", as_load_name),
-        ("date", as_date),
-    ]
-
-    # For each token, assign it to the first unset field whose parser accepts it.
-    for arg in opt.args:
-        match = False
-        for key, matcher in matchers:
-            if getattr(args, key) is None:
-                parsed = matcher(arg)
-                if parsed is not None:
-                    setattr(args, key, parsed)
-                    match = True
-                    break
-        if not match:
-            raise ValueError(f"Unrecognized argument: {arg}")
-
-    return args
-
-
-def check_args(args: Args, allowed_combinations: list[tuple[str, ...]]) -> None:
-    """Check that the given ``Args`` instance matches one of the allowed combinations.
-
-    Parameters
-    ----------
-    args : Args
-        Parsed arguments to check.
-    allowed_combinations : list of tuple of str
-        List of allowed argument combinations. Each tuple contains the names
-        of the fields that must be set for that combination to be valid.
-
-    Raises
-    ------
-    ValueError
-        Raised if the arguments do not match any of the allowed combinations.
-    """
-    for combo in allowed_combinations:
-        if args.has_exact_args(*combo):
-            return
-
-    allowed = "\n".join(f"  - {', '.join(combo)}" for combo in allowed_combinations)
-    raise ValueError(
-        f"Arguments {args} do not match any allowed combination:\n{allowed}"
-    )
-
-
 class NotUniqueObservationError(Exception):
     """Raised when the arguments do not specify a unique observation."""
 
 
-def get_observation(args: Args, *, archive_only=False) -> dict[str, Any]:
+def get_observation(resource: ResourceBase, *, archive_only=False) -> dict[str, Any]:
     """Get a unique observation matching the given arguments."""
-    if args.date is None and args.obsid is None and args.load_name is None:
+    date = getattr(resource, "date", None)
+    obsid = getattr(resource, "obsid", None)
+    load_name = getattr(resource, "load_name", None)
+
+    if date is None and obsid is None and load_name is None:
         raise ValueError("need to specify at least one of date, obsid, or load_name")
 
     kwargs = {}
     if archive_only:
         kwargs["scenario"] = "flight"
-    if args.date:
-        kwargs["start"] = args.date
-        kwargs["stop"] = args.date + 15 * u.s  # cover gap from NMAN to manvr start
-        if args.date < CxoTime("-30d"):
+    if date:
+        kwargs["start"] = date
+        kwargs["stop"] = date + 15 * u.s  # cover gap from NMAN to manvr start
+        if date < CxoTime("-30d"):
             kwargs["scenario"] = "flight"  # update to "archive-only" when possible
-    if args.obsid:
-        kwargs["obsid_sched"] = args.obsid
-    if args.load_name:
-        kwargs["source"] = args.load_name
+    if obsid:
+        kwargs["obsid_sched"] = obsid
+    if load_name:
+        kwargs["source"] = load_name
 
     obss = kc.get_observations(**kwargs)
     if len(obss) == 1:
         return obss[0]
     else:
         raise NotUniqueObservationError(
-            f"found {len(obss)} observations (instead of one) for arguments {args}"
+            "found "
+            f"{len(obss)} observations (instead of one) for resource {resource.name}"
         )
 
 
-def get_starcheck_url(opt: argparse.Namespace, args: Args) -> str:
+@dataclasses.dataclass
+class ResourceMica(ResourceBase):
+    """MICA resource URL builder.
+
+    Allowed args: date, obsid, load_name
     """
-    Get the URL for the Starcheck resource for the given arguments.
-    """
-    if args.has_exact_args("load_name"):
-        load_name = args.load_name
-        obsid = None
-    else:
-        obs = get_observation(args, archive_only=opt.archive_only)
-        load_name = obs["source"]
-        obsid = obs.get("obsid_sched", obs["obsid"])
 
-    if opt.occweb:
-        server = "occweb"
-    elif opt.local:
-        # Note: using file:///path_to_starcheck/starcheck.html#obsid<obsid> does not
-        # work. The #obsid<obsid> bit gets stripped on Mac because the application
-        # is looking for a pure file name (according to AI).
-        raise ValueError("local server not allowed for starcheck")
-    else:
-        server = "icxc"
+    opt: argparse.Namespace | None = None
+    date: CxoTime | None = None
+    obsid: int | None = None
+    load_name: str | None = None
 
-    url = parse_cm.paths.load_url_from_load_name(load_name, server=server)
-    url += "/starcheck.html"
-    if obsid is not None:
-        url += f"#obsid{obsid}"
+    def get_url(self) -> str:
+        """Get the URL for the MICA resource for the given arguments."""
+        if self.obsid is None or self.load_name is None:
+            obs = get_observation(self, archive_only=self.opt.archive_only)
+            load_name = obs["source"]
+            obsid = obs.get("obsid_sched", obs["obsid"])
+        else:
+            load_name = self.load_name
+            obsid = self.obsid
 
-    return url
-
-
-def get_mica_url(opt: argparse.Namespace, args: Args) -> str:
-    """Get the URL for the MICA resource for the given arguments.
-
-    Like:
-    https://kadi.cfa.harvard.edu/mica/?obsid_or_date=43474&load_name=APR2924A
-    """
-    if args.obsid is None or args.load_name is None:
-        obs = get_observation(args, archive_only=opt.archive_only)
-        load_name = obs["source"]
-        obsid = obs.get("obsid_sched", obs["obsid"])
-    else:
-        load_name = args.load_name
-        obsid = args.obsid
-
-    return (
-        "https://kadi.cfa.harvard.edu/mica/"
-        f"?obsid_or_date={obsid}&load_name={load_name}"
-    )
-
-
-def get_agasc_url(opt: argparse.Namespace, args: Args) -> str:
-    """Get the URL for the AGASC page for the AGASC ID.
-
-    Like:
-    https://cxc.cfa.harvard.edu/mta/ASPECT/agasc/supplement_reports/stars/070/701368208/index.html
-    """
-    if opt.local or opt.occweb:
-        raise ValueError("AGASC page is not available on local or OCCweb")
-
-    if args.agasc_id is None:
-        raise ValueError("agasc_id must be specified to generate an AGASC URL")
-    prefix = f"{args.agasc_id:010d}"[:3]
-    return (
-        "https://cxc.cfa.harvard.edu/mta/ASPECT/agasc/supplement_reports/stars/"
-        f"{prefix}/{args.agasc_id}/index.html"
-    )
-
-
-def get_star_history_url(opt: argparse.Namespace, args: Args) -> str:
-    """Get the URL for the Star History page for AGASC ID.
-
-    Like:
-    https://kadi.cfa.harvard.edu/star_hist/?agasc_id=701368208
-    """
-    if opt.local or opt.occweb:
-        raise ValueError("AGASC page is not available on local or OCCweb")
-
-    if args.agasc_id is None:
-        raise ValueError("agasc_id must be specified to generate a Star History URL")
-    return f"https://kadi.cfa.harvard.edu/star_hist/?agasc_id={args.agasc_id}"
-
-
-def get_centroid_dashboard_url(opt: argparse.Namespace, args: Args) -> str:
-    """Get the URL for the Centroid Dashboard resource for the given arguments.
-
-    Like:
-    https://icxc.cfa.harvard.edu/aspect/centroid_reports//2025/MAR1025B/28365/index.html
-    """
-    if args.obsid is None or args.load_name is None:
-        obs = get_observation(args, archive_only=opt.archive_only)
-        load_name = obs["source"]
-        obsid = obs.get("obsid_sched", obs["obsid"])
-    else:
-        load_name = args.load_name
-        obsid = args.obsid
-
-    *_, load_year = parse_cm.parse_load_name(load_name)
-
-    if opt.occweb:
-        raise ValueError("no centroid dashboard on OCCweb")
-
-    if opt.local:
-        out = (
-            f"file://{SKA}/data/centroid_dashboard/centroid_reports/"
-            f"{load_year}/{load_name}/{obsid}/index.html"
+        return (
+            "https://kadi.cfa.harvard.edu/mica/"
+            f"?obsid_or_date={obsid}&load_name={load_name}"
         )
-    else:
-        out = (
-            "https://icxc.cfa.harvard.edu/aspect/centroid_reports/"
-            f"{load_year}/{load_name}/{obsid}/index.html"
+
+
+@dataclasses.dataclass
+class ResourceAgasc(ResourceBase):
+    """AGASC resource URL builder.
+
+    Allowed args: agasc_id
+    """
+
+    opt: argparse.Namespace | None = None
+    agasc_id: int | None = None
+
+    def get_url(self) -> str:
+        """Get the URL for the AGASC page for the AGASC ID."""
+        if self.opt.local or self.opt.occweb:
+            raise ValueError("AGASC page is not available on local or OCCweb")
+
+        if self.agasc_id is None:
+            raise ValueError("agasc_id must be specified to generate an AGASC URL")
+        prefix = f"{self.agasc_id:010d}"[:3]
+        return (
+            "https://cxc.cfa.harvard.edu/mta/ASPECT/agasc/supplement_reports/stars/"
+            f"{prefix}/{self.agasc_id}/index.html"
         )
-    return out
 
 
-def get_chaser_url(opt: argparse.Namespace, args: Args) -> str:
-    """Get the URL for the Chaser resource for the given arguments.
+@dataclasses.dataclass
+class ResourceStarHistory(ResourceBase):
+    """Star History resource URL builder.
 
-    Like:
-    https://cda.cfa.harvard.edu/chaser/startViewer.do?menuItem=details&obsid=31041
+    Allowed args: agasc_id
     """
-    if opt.local or opt.occweb:
-        raise ValueError("Chaser is not available on local or OCCweb")
 
-    if args.obsid is None:
-        obs = get_observation(args, archive_only=opt.archive_only)
-        obsid = obs.get("obsid_sched", obs["obsid"])
-    else:
-        obsid = args.obsid
+    opt: argparse.Namespace | None = None
+    agasc_id: int | None = None
 
-    return (
-        "https://cda.cfa.harvard.edu/chaser/startViewer.do"
-        f"?menuItem=details&obsid={obsid}"
-    )
+    def get_url(self) -> str:
+        """Get the URL for the Star History resource for AGASC ID."""
+        if self.opt.local or self.opt.occweb:
+            raise ValueError("AGASC page is not available on local or OCCweb")
+
+        if self.agasc_id is None:
+            raise ValueError("agasc_id must be specified to generate a Star History URL")
+        return f"https://kadi.cfa.harvard.edu/star_hist/?agasc_id={self.agasc_id}"
 
 
-def get_fot_daily_plots_url(opt: argparse.Namespace, args: Args) -> str:
-    """Get the URL for the FOT daily plots resource for the given arguments.
+@dataclasses.dataclass
+class ResourceCentroidDashboard(ResourceBase):
+    """Centroid Dashboard resource URL builder.
 
-    Like:
-    https://occweb.cfa.harvard.edu/occweb/FOT/engineering/reports/dailies/2024/MAY/may04_125/
+    Allowed args: date, obsid, load_name
     """
-    if opt.local:
-        raise ValueError("fot-daily-plots is not available on local")
 
-    if args.obsid is not None:
-        obs = get_observation(args, archive_only=opt.archive_only)
-        date = CxoTime(obs["obs_start"])
-    elif args.date is not None:
-        date = CxoTime(args.date)
-    else:
-        raise ValueError("fot-daily-plots requires either obsid or date")
+    opt: argparse.Namespace | None = None
+    date: CxoTime | None = None
+    obsid: int | None = None
+    load_name: str | None = None
 
-    dt = date.datetime
-    year = dt.year
-    month_upper = dt.strftime("%b").upper()
-    month_lower = dt.strftime("%b").lower()
-    day = dt.day
-    doy = dt.timetuple().tm_yday
+    def get_url(self) -> str:
+        """Get the URL for the Centroid Dashboard resource for the given arguments."""
+        if self.obsid is None or self.load_name is None:
+            obs = get_observation(self, archive_only=self.opt.archive_only)
+            load_name = obs["source"]
+            obsid = obs.get("obsid_sched", obs["obsid"])
+        else:
+            load_name = self.load_name
+            obsid = self.obsid
 
-    return (
-        "https://occweb.cfa.harvard.edu/occweb/FOT/engineering/reports/dailies/"
-        f"{year}/{month_upper}/{month_lower}{day:02d}_{doy:03d}/"
-    )
+        *_, load_year = parse_cm.parse_load_name(load_name)
+
+        if self.opt.occweb:
+            raise ValueError("no centroid dashboard on OCCweb")
+
+        if self.opt.local:
+            out = (
+                f"file://{SKA}/data/centroid_dashboard/centroid_reports/"
+                f"{load_year}/{load_name}/{obsid}/index.html"
+            )
+        else:
+            out = (
+                "https://icxc.cfa.harvard.edu/aspect/centroid_reports/"
+                f"{load_year}/{load_name}/{obsid}/index.html"
+            )
+        return out
 
 
-def get_resource_url(resource: str, opt: argparse.Namespace, args: Args) -> str:
+@dataclasses.dataclass
+class ResourceChaser(ResourceBase):
+    """Chaser resource URL builder.
+
+    Allowed args: obsid, date, load_name
+    """
+
+    opt: argparse.Namespace | None = None
+    obsid: int | None = None
+    date: CxoTime | None = None
+    load_name: str | None = None
+
+    def get_url(self) -> str:
+        """Get the URL for the Chaser resource for the given arguments."""
+        if self.opt.local or self.opt.occweb:
+            raise ValueError("Chaser is not available on local or OCCweb")
+
+        if self.obsid is None:
+            obs = get_observation(self, archive_only=self.opt.archive_only)
+            obsid = obs.get("obsid_sched", obs["obsid"])
+        else:
+            obsid = self.obsid
+
+        return (
+            "https://cda.cfa.harvard.edu/chaser/startViewer.do"
+            f"?menuItem=details&obsid={obsid}"
+        )
+
+
+@dataclasses.dataclass
+class ResourceFotDailyPlots(ResourceBase):
+    """FOT daily plots resource URL builder.
+
+    Allowed args: date, obsid, load_name
+    """
+
+    opt: argparse.Namespace | None = None
+    date: CxoTime | None = None
+    obsid: int | None = None
+    load_name: str | None = None
+
+    def get_url(self) -> str:
+        """Get the URL for the FOT daily plots resource for the given arguments."""
+        if self.opt.local:
+            raise ValueError("fot-daily-plots is not available on local")
+
+        if self.obsid is not None:
+            obs = get_observation(self, archive_only=self.opt.archive_only)
+            date = CxoTime(obs["obs_start"])
+        elif self.date is not None:
+            date = CxoTime(self.date)
+        else:
+            raise ValueError("fot-daily-plots requires either obsid or date")
+
+        dt = date.datetime
+        year = dt.year
+        month_upper = dt.strftime("%b").upper()
+        month_lower = dt.strftime("%b").lower()
+        day = dt.day
+        doy = dt.timetuple().tm_yday
+
+        return (
+            "https://occweb.cfa.harvard.edu/occweb/FOT/engineering/reports/dailies/"
+            f"{year}/{month_upper}/{month_lower}{day:02d}_{doy:03d}/"
+        )
+
+
+def get_resource_url(resource: str, opt: argparse.Namespace) -> str:
     """Get the URL for a content resource for the given arguments.
 
     TODO:
@@ -561,29 +484,18 @@ def get_resource_url(resource: str, opt: argparse.Namespace, args: Args) -> str:
         - URL https://icxc.harvard.edu/mp/mplogs/OFLS_testing/2026/JAN2626/scheduled_t/JAN2626T.html
         - Where do FOT test loads live? Any network-visible location?
     """
-    resource_funcs = {
-        "starcheck": get_starcheck_url,
-        "mica": get_mica_url,
-        "agasc": get_agasc_url,
-        "star-history": get_star_history_url,
-        "centroid-dashboard": get_centroid_dashboard_url,
-        "chaser": get_chaser_url,
-        "fot-daily-plots": get_fot_daily_plots_url,
-    }
-
     try:
-        func = resource_funcs[resource]
+        resource_cls = ResourceBase.subclasses[resource]
     except KeyError as err:
         raise ValueError(f"unknown resource '{resource}'") from err
-    return func(opt, args)
+    return resource_cls(opt=opt).get_url()
 
 
 def main() -> None:
     """Run the command-line interface entry point."""
     parser = get_opt()
     opt = parser.parse_args()
-    args = get_arg_values(opt)
-    url = get_resource_url(opt.resource, opt, args)
+    url = get_resource_url(opt.resource, opt)
 
     if opt.print_url:
         print(url)
