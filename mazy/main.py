@@ -91,89 +91,76 @@ def get_opt() -> argparse.ArgumentParser:
     return parser
 
 
-def as_date(arg: str) -> CxoTime | None:
-    """Parse an argument as a Chandra date/time.
+class ParserBase:
+    """Base class for argument parsers."""
 
-    Parameters
-    ----------
-    arg : str
-        Input token to parse.
+    name: str | None = None
+    subclasses: dict[str, type["ParserBase"]] = {}
 
-    Returns
-    -------
-    CxoTime or None
-        Parsed ``CxoTime`` if valid, otherwise ``None``.
-    """
-    try:
-        out = CxoTime(arg)
-    except Exception:
-        out = None
-    return out
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        base_name = cls.__name__[len("Parser") :]
+        step1 = re.sub(r"(.)([A-Z][a-z]+)", r"\1_\2", base_name)
+        cls.name = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", step1).lower()
+        ParserBase.subclasses[cls.name] = cls
 
-
-def as_load_name(arg: str) -> str | None:
-    """Parse an argument as a load name.
-
-    Parameters
-    ----------
-    arg : str
-        Input token to parse.
-
-    Returns
-    -------
-    str or None
-        Original argument if it is a valid load name, otherwise ``None``.
-    """
-    try:
-        parse_cm.paths.parse_load_name(arg)
-        out = arg
-    except Exception:
-        out = None
-    return out
+    @staticmethod
+    def parse(arg: str):
+        """Parse ``arg`` and return parsed value or ``None``."""
+        raise NotImplementedError
 
 
-def as_agasc_id(arg: str) -> int | None:
-    """Parse an argument as an AGASC ID.
+class ParserDate(ParserBase):
+    """Parser for Chandra date/time values."""
 
-    It must be an integer > 65536.
-    """
-    try:
-        out = int(arg)
-        if out <= 65536:
+    @staticmethod
+    def parse(arg: str) -> CxoTime | None:
+        try:
+            out = CxoTime(arg)
+        except Exception:
             out = None
-    except Exception:
-        out = None
-    return out
+        return out
 
 
-def as_obsid(arg: str) -> int | None:
-    """Parse an argument as an observation ID.
+class ParserLoadName(ParserBase):
+    """Parser for load names."""
 
-    Parameters
-    ----------
-    arg : str
-        Input token to parse.
-
-    Returns
-    -------
-    int or None
-        Integer value if in the inclusive range [0, 65535], otherwise ``None``.
-    """
-    try:
-        out = int(arg)
-        if not (0 <= out <= 65535):
+    @staticmethod
+    def parse(arg: str) -> str | None:
+        try:
+            parse_cm.paths.parse_load_name(arg)
+            out = arg
+        except Exception:
             out = None
-    except Exception:
-        out = None
-    return out
+        return out
 
 
-PARSERS: list[tuple[str, Any]] = [
-    ("obsid", as_obsid),
-    ("agasc_id", as_agasc_id),
-    ("load_name", as_load_name),
-    ("date", as_date),
-]
+class ParserAgascId(ParserBase):
+    """Parser for AGASC ID values."""
+
+    @staticmethod
+    def parse(arg: str) -> int | None:
+        try:
+            out = int(arg)
+            if out <= 65536:
+                out = None
+        except Exception:
+            out = None
+        return out
+
+
+class ParserObsid(ParserBase):
+    """Parser for OBSID values."""
+
+    @staticmethod
+    def parse(arg: str) -> int | None:
+        try:
+            out = int(arg)
+            if not (0 <= out <= 65535):
+                out = None
+        except Exception:
+            out = None
+        return out
 
 
 class ResourceBase:
@@ -206,7 +193,11 @@ class ResourceBase:
 
     def __post_init__(self):
         field_names = [f.name for f in dataclasses.fields(self)]
-        parsers = [(name, func) for name, func in PARSERS if name in field_names]
+        parsers = [
+            (name, parser_cls.parse)
+            for name, parser_cls in ParserBase.subclasses.items()
+            if name in field_names
+        ]
 
         for value in self.opt.args:
             for parser_name, parser_func in parsers:
