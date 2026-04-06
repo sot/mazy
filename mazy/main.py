@@ -1,4 +1,5 @@
 import argparse
+import os
 import webbrowser
 from dataclasses import dataclass
 from typing import Any, Callable
@@ -9,6 +10,8 @@ import parse_cm.paths
 from cxotime import CxoTime
 
 from mazy import __version__
+
+SKA = os.environ["SKA"]
 
 
 @dataclass
@@ -45,15 +48,16 @@ class Args:
 def get_opt() -> argparse.ArgumentParser:
     """Create the command-line parser used by ``mazy``.
 
-    The CLI accepts an initial ``page`` positional argument, followed by
+    The CLI accepts an initial ``resource`` positional argument, followed by
     optional positional tokens that are classified as obsid, AGASC ID, load
     name, or date. It also supports mutually exclusive content location
     switches.
 
     Examples
     --------
-    mazy starcheck 12312 MAR2422A 2024:001 --print-url
-    mazy mica 12312 --occweb
+    mazy starcheck 43474 APR2924A 2024:125:06:22:32 --print-url
+    mazy mica 43474 --occweb
+    mazy centroid_dashboard 2024:125:06:22:32 --local
 
     Returns
     -------
@@ -63,20 +67,22 @@ def get_opt() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Resolve positional inputs as obsid, AGASC ID, load name, and/or\n date,"
-            "then open the selected content page. Note that a date must be provided in "
+            "then open the selected content resource. Note that a date must be provided in "
             "a string format (float CXC seconds are not accepted)."
         ),
         epilog=(
             "Examples:\n"
-            "  mazy starcheck MAR2422A\n"
-            "  mazy mica 12312\n"
-            "  mazy centroid-dashboard 2024:001 --local"
+            "  mazy starcheck APR2924A --occweb\n"
+            "  mazy mica 43474\n"
+            "  mazy centroid_dashboard 2024:125:06:22:32 --local\n"
+            "  mazy star_history 701368208\n"
+            "  mazy agasc 701368208"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
-        "page",
-        help="Content page name, for example: starcheck, mica, agasc",
+        "resource",
+        help="Content resource name, for example: starcheck, mica, agasc",
     )
     parser.add_argument(
         "args",
@@ -278,6 +284,7 @@ def get_observation(args: Args, *, archive_only=False) -> dict[str, Any]:
     if args.load_name:
         kwargs["source"] = args.load_name
 
+    print(kwargs)
     obss = kc.get_observations(**kwargs)
     if len(obss) == 1:
         return obss[0]
@@ -289,7 +296,7 @@ def get_observation(args: Args, *, archive_only=False) -> dict[str, Any]:
 
 def get_starcheck_url(opt: argparse.Namespace, args: Args) -> str:
     """
-    Get the URL for the Starcheck page for the given arguments.
+    Get the URL for the Starcheck resource for the given arguments.
     """
     if args.has_exact_args("load_name"):
         load_name = args.load_name
@@ -304,45 +311,115 @@ def get_starcheck_url(opt: argparse.Namespace, args: Args) -> str:
     url += "/starcheck.html"
     if obsid is not None:
         url += f"#obsid{obsid}"
+
     return url
 
 
 def get_mica_url(opt: argparse.Namespace, args: Args) -> str:
-    """Get the URL for the MICA page for the given arguments."""
-    raise NotImplementedError("MICA URL generation is not implemented yet")
+    """Get the URL for the MICA resource for the given arguments.
 
+    Like:
+    https://kadi.cfa.harvard.edu/mica/?obsid_or_date=43474&load_name=APR2924A
+    """
+    if args.obsid is None or args.load_name is None:
+        obs = get_observation(args, archive_only=opt.archive_only)
+        load_name = obs["source"]
+        obsid = obs.get("obsid_sched", obs["obsid"])
+    else:
+        load_name = args.load_name
+        obsid = args.obsid
 
-def get_agasc_url(opt: argparse.Namespace, args: Args) -> str:
-    """Get the URL for the AGASC page for the given arguments."""
-    raise NotImplementedError("AGASC URL generation is not implemented yet")
-
-
-def get_star_history_url(opt: argparse.Namespace, args: Args) -> str:
-    """Get the URL for the Star History page for the given arguments."""
-    raise NotImplementedError("Star History URL generation is not implemented yet")
-
-
-def get_centroid_dashboard_url(opt: argparse.Namespace, args: Args) -> str:
-    """Get the URL for the Centroid Dashboard page for the given arguments."""
-    raise NotImplementedError(
-        "Centroid Dashboard URL generation is not implemented yet"
+    return (
+        "https://kadi.cfa.harvard.edu/mica/"
+        f"?obsid_or_date={obsid}&load_name={load_name}"
     )
 
 
-def get_page_url(page: str, opt: argparse.Namespace, args: Args) -> str:
-    """Get the URL for a content page for the given arguments."""
-    if page == "starcheck":
+def get_agasc_url(opt: argparse.Namespace, args: Args) -> str:
+    """Get the URL for the AGASC page for the AGASC ID.
+
+    Like:
+    https://cxc.cfa.harvard.edu/mta/ASPECT/agasc/supplement_reports/stars/070/701368208/index.html
+    """
+    if opt.local or opt.occweb:
+        raise ValueError("AGASC page is not available on local or OCCweb")
+
+    if args.agasc_id is None:
+        raise ValueError("agasc_id must be specified to generate an AGASC URL")
+    prefix = f"{args.agasc_id:010d}"[:3]
+    return (
+        "https://cxc.cfa.harvard.edu/mta/ASPECT/agasc/supplement_reports/stars/"
+        f"{prefix}/{args.agasc_id}/index.html"
+    )
+
+
+def get_star_history_url(opt: argparse.Namespace, args: Args) -> str:
+    """Get the URL for the Star History page for AGASC ID.
+
+    Like:
+    https://kadi.cfa.harvard.edu/star_hist/?agasc_id=701368208
+    """
+    if opt.local or opt.occweb:
+        raise ValueError("AGASC page is not available on local or OCCweb")
+
+    if args.agasc_id is None:
+        raise ValueError("agasc_id must be specified to generate a Star History URL")
+    return f"https://kadi.cfa.harvard.edu/star_hist/?agasc_id={args.agasc_id}"
+
+
+def get_centroid_dashboard_url(opt: argparse.Namespace, args: Args) -> str:
+    """Get the URL for the Centroid Dashboard resource for the given arguments.
+
+    Like:
+    https://icxc.cfa.harvard.edu/aspect/centroid_reports//2025/MAR1025B/28365/index.html
+    """
+    if args.obsid is None or args.load_name is None:
+        obs = get_observation(args, archive_only=opt.archive_only)
+        load_name = obs["source"]
+        obsid = obs.get("obsid_sched", obs["obsid"])
+    else:
+        load_name = args.load_name
+        obsid = args.obsid
+
+    *_, load_year = parse_cm.parse_load_name(load_name)
+
+    if opt.occweb:
+        raise ValueError("no centroid dashboard on OCCweb")
+
+    if opt.local:
+        out = (
+            f"file://{SKA}/data/centroid_dashboard/centroid_reports/"
+            f"{load_year}/{load_name}/{obsid}/index.html"
+        )
+    else:
+        out = (
+            "https://icxc.cfa.harvard.edu/aspect/centroid_reports/"
+            f"{load_year}/{load_name}/{obsid}/index.html"
+        )
+    return out
+
+
+def get_resource_url(resource: str, opt: argparse.Namespace, args: Args) -> str:
+    """Get the URL for a content resource for the given arguments.
+
+    TODO:
+    - Support test loads:
+        - On HEAD disk /data/mpcrit1/mplogs/OFLS_testing/2026/JAN2626
+        - URL https://icxc.harvard.edu/mp/mplogs/OFLS_testing/2026/JAN2626/scheduled_t/JAN2626T.html
+        - Where do FOT test loads live? Any network-visible location?
+    """
+    if resource == "starcheck":
         return get_starcheck_url(opt, args)
-    elif page == "mica":
+    elif resource == "mica":
         return get_mica_url(opt, args)
-    elif page == "agasc":
+    elif resource == "agasc":
         return get_agasc_url(opt, args)
-    elif page == "star_history":
+    elif resource == "star_history":
         return get_star_history_url(opt, args)
-    elif page == "centroid_dashboard":
+    elif resource == "centroid_dashboard":
         return get_centroid_dashboard_url(opt, args)
     else:
-        raise ValueError(f"unknown page '{page}'")
+        raise ValueError(f"unknown resource '{resource}'")
 
 
 def main() -> None:
@@ -350,7 +427,7 @@ def main() -> None:
     parser = get_opt()
     opt = parser.parse_args()
     args = get_arg_values(opt)
-    url = get_page_url(opt.page, opt, args)
+    url = get_resource_url(opt.resource, opt, args)
 
     if opt.print_url:
         print(url)
