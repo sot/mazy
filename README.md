@@ -25,6 +25,7 @@ options:
 Content location (choose one, default=cxc/icxc):
   --local         Use local content
   --occweb        Use OCC web content
+```
 
 ## Examples
 ```
