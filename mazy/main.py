@@ -237,7 +237,12 @@ class ResourceStarcheck(ResourceBase):
             load_name = self.load_name
             obsid = None
         else:
-            obs = get_observation(self, archive_only=self.opt.archive_only)
+            obs = get_observation(
+                date=self.date,
+                obsid=self.obsid,
+                load_name=self.load_name,
+                archive_only=self.opt.archive_only,
+            )
             load_name = obs["source"]
             obsid = obs.get("obsid_sched", obs["obsid"])
 
@@ -263,12 +268,14 @@ class NotUniqueObservationError(Exception):
     """Raised when the arguments do not specify a unique observation."""
 
 
-def get_observation(resource: ResourceBase, *, archive_only=False) -> dict[str, Any]:
+def get_observation(
+    *,
+    date: CxoTime | None = None,
+    obsid: int | None = None,
+    load_name: str | None = None,
+    archive_only: bool = False,
+) -> dict[str, Any]:
     """Get a unique observation matching the given arguments."""
-    date = getattr(resource, "date", None)
-    obsid = getattr(resource, "obsid", None)
-    load_name = getattr(resource, "load_name", None)
-
     if date is None and obsid is None and load_name is None:
         raise ValueError("need to specify at least one of date, obsid, or load_name")
 
@@ -291,7 +298,8 @@ def get_observation(resource: ResourceBase, *, archive_only=False) -> dict[str, 
     else:
         raise NotUniqueObservationError(
             "found "
-            f"{len(obss)} observations (instead of one) for resource {resource.name}"
+            f"{len(obss)} observations (instead of one) "
+            f"for date={date}, obsid={obsid}, load_name={load_name}"
         )
 
 
@@ -310,7 +318,12 @@ class ResourceMica(ResourceBase):
     def get_url(self) -> str:
         """Get the URL for the MICA resource for the given arguments."""
         if self.obsid is None or self.load_name is None:
-            obs = get_observation(self, archive_only=self.opt.archive_only)
+            obs = get_observation(
+                date=self.date,
+                obsid=self.obsid,
+                load_name=self.load_name,
+                archive_only=self.opt.archive_only,
+            )
             load_name = obs["source"]
             obsid = obs.get("obsid_sched", obs["obsid"])
         else:
@@ -384,7 +397,12 @@ class ResourceCentroidDashboard(ResourceBase):
     def get_url(self) -> str:
         """Get the URL for the Centroid Dashboard resource for the given arguments."""
         if self.obsid is None or self.load_name is None:
-            obs = get_observation(self, archive_only=self.opt.archive_only)
+            obs = get_observation(
+                date=self.date,
+                obsid=self.obsid,
+                load_name=self.load_name,
+                archive_only=self.opt.archive_only,
+            )
             load_name = obs["source"]
             obsid = obs.get("obsid_sched", obs["obsid"])
         else:
@@ -427,7 +445,12 @@ class ResourceChaser(ResourceBase):
             raise ValueError("Chaser is not available on local or OCCweb")
 
         if self.obsid is None:
-            obs = get_observation(self, archive_only=self.opt.archive_only)
+            obs = get_observation(
+                date=self.date,
+                obsid=self.obsid,
+                load_name=self.load_name,
+                archive_only=self.opt.archive_only,
+            )
             obsid = obs.get("obsid_sched", obs["obsid"])
         else:
             obsid = self.obsid
@@ -456,7 +479,12 @@ class ResourceFotDailyPlots(ResourceBase):
             raise ValueError("fot-daily-plots is not available on local")
 
         if self.obsid is not None:
-            obs = get_observation(self, archive_only=self.opt.archive_only)
+            obs = get_observation(
+                date=self.date,
+                obsid=self.obsid,
+                load_name=self.load_name,
+                archive_only=self.opt.archive_only,
+            )
             date = CxoTime(obs["obs_start"])
         elif self.date is not None:
             date = CxoTime(self.date)
