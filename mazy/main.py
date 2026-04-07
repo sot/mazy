@@ -43,22 +43,34 @@ def get_opt_parser() -> argparse.ArgumentParser:
     argparse.ArgumentParser
         Configured parser for the ``mazy`` command.
     """
+    resource_lines = []
+    for resource_name in sorted(ResourceBase.subclasses):
+        resource_cls = ResourceBase.subclasses[resource_name]
+        doc = (resource_cls.__doc__ or "").strip().splitlines()
+        summary = doc[0] if doc else ""
+        resource_lines.append(f"- {resource_name}: {summary}")
+
     parser = argparse.ArgumentParser(
         description=(
-            "Resolve positional inputs as obsid, AGASC ID, load name, and/or\n date,"
-            "then open the selected content resource. Note that a date must be provided in "
-            "a string format (float CXC seconds are not accepted)."
+            "Find a Chandra operations resource by observation, obsid, load_name, date, "
+            "or AGASC ID as appropriate.\n\n"
+            "Available resources:\n"
+            + "\n".join(resource_lines)
         ),
         epilog=(
             "Examples:\n"
+            "  mazy dot 43474\n"
+            "  mazy dot APR2924A\n"
+            "  mazy backstop 2024:125:06:22:32\n"
+            "  mazy fot-daily-plots 2024:125:06:22:32\n"
+            "  mazy fot 43474  # abbreviation\n"
+            "  mazy maneuver 2025:001\n"
+            "  mazy chaser 8008\n"
             "  mazy starcheck APR2924A --occweb\n"
             "  mazy mica 43474\n"
             "  mazy centroid-dashboard 2024:125:06:22:32 --local\n"
             "  mazy star-history 701368208\n"
             "  mazy agasc 701368208\n"
-            "  mazy chaser 43474\n"
-            "  mazy fot-daily-plots 2024:125:06:22:32\n"
-            "  mazy fot 2024:125:06:22:32  # abbreviation"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -289,6 +301,8 @@ class ResourceObsidBase(ResourceBase):
 
 @dataclasses.dataclass
 class ResourceStarcheck(ResourceObsidBase):
+    """Starcheck ACA review page by observation or load name"""
+
     locations: tuple[str, ...] = ("occweb", "cxc")
 
     def get_url(self) -> str:
@@ -308,6 +322,8 @@ class ResourceStarcheck(ResourceObsidBase):
 
 @dataclasses.dataclass
 class ResourceDOT(ResourceStarcheck):
+    """DOT file by observation or load name"""
+
     def get_url(self) -> str:
         """Get URL for DOT file for the given arguments."""
         url = super().get_url()
@@ -318,6 +334,8 @@ class ResourceDOT(ResourceStarcheck):
 
 @dataclasses.dataclass
 class ResourceTLR(ResourceStarcheck):
+    """Timeline Report file by observation or load name"""
+
     def get_url(self) -> str:
         """Get URL for timeline report file for the given arguments."""
         url = super().get_url()
@@ -331,8 +349,11 @@ class ResourceTLR(ResourceStarcheck):
         url = re.sub(r"starcheck\.html.*$", file_link, url)
         return url
 
+
 @dataclasses.dataclass
 class ResourceBackstop(ResourceStarcheck):
+    """Backstop file by observation or load name"""
+
     def get_url(self) -> str:
         """Get URL for backstop file for the given arguments."""
         url = super().get_url()
@@ -349,6 +370,8 @@ class ResourceBackstop(ResourceStarcheck):
 
 @dataclasses.dataclass
 class ResourceORList(ResourceStarcheck):
+    """OR list file by observation or load name"""
+
     def get_url(self) -> str:
         """Get URL for OR List file for the given arguments."""
         # starcheck/DEC2925_B.or.html#31287
@@ -362,6 +385,8 @@ class ResourceORList(ResourceStarcheck):
 
 @dataclasses.dataclass
 class ResourceManeuverSummary(ResourceStarcheck):
+    """Maneuver summary file by observation or load name"""
+
     def get_url(self) -> str:
         """Get URL for maneuver summary file for the given arguments."""
         # starcheck/mmDEC2324B.sum.html#28365
@@ -377,10 +402,7 @@ class NotUniqueObservationError(Exception):
 
 @dataclasses.dataclass
 class ResourceMica(ResourceObsidBase):
-    """MICA resource URL builder.
-
-    Allowed args: date, obsid, load_name
-    """
+    """Mica aspect page by observation"""
 
     locations: tuple[str, ...] = ("cxc",)
 
@@ -397,10 +419,7 @@ class ResourceMica(ResourceObsidBase):
 
 @dataclasses.dataclass
 class ResourceAgasc(ResourceBase):
-    """AGASC resource URL builder.
-
-    Allowed args: agasc_id
-    """
+    """AGASC summary for star by AGASC ID"""
 
     locations: tuple[str, ...] = ("cxc",)
     agasc_id: int | None = None
@@ -418,16 +437,13 @@ class ResourceAgasc(ResourceBase):
 
 @dataclasses.dataclass
 class ResourceStarHistory(ResourceBase):
-    """Star History resource URL builder.
-
-    Allowed args: agasc_id
-    """
+    """Star History by AGASC ID"""
 
     locations: tuple[str, ...] = ("cxc",)
     agasc_id: int | None = None
 
     def get_url(self) -> str:
-        """Get the URL for the Star History resource for AGASC ID."""
+        """Get the URL for the Star History page for AGASC ID."""
         if self.agasc_id is None:
             raise ValueError(
                 "agasc_id must be specified to generate a Star History URL"
@@ -437,15 +453,12 @@ class ResourceStarHistory(ResourceBase):
 
 @dataclasses.dataclass
 class ResourceCentroidDashboard(ResourceObsidBase):
-    """Centroid Dashboard resource URL builder.
-
-    Allowed args: date, obsid, load_name
-    """
+    """Centroid Dashboard page by observation"""
 
     locations: tuple[str, ...] = ("cxc", "local")
 
     def get_url(self) -> str:
-        """Get the URL for the Centroid Dashboard resource for the given arguments."""
+        """Get the URL for the Centroid Dashboard page for the given arguments."""
         if self.obsid is None or self.load_name is None:
             self.resolve_args_as_load_name_obsid()
 
@@ -466,15 +479,12 @@ class ResourceCentroidDashboard(ResourceObsidBase):
 
 @dataclasses.dataclass
 class ResourceChaser(ResourceObsidBase):
-    """Chaser resource URL builder.
-
-    Allowed args: obsid, date, load_name
-    """
+    """Chaser page by observation"""
 
     locations: tuple[str, ...] = ("cxc",)
 
     def get_url(self) -> str:
-        """Get the URL for the Chaser resource for the given arguments."""
+        """Get the URL for the Chaser page for the given arguments."""
         if self.obsid is None:
             self.resolve_args_as_load_name_obsid()
 
@@ -486,15 +496,12 @@ class ResourceChaser(ResourceObsidBase):
 
 @dataclasses.dataclass
 class ResourceFotDailyPlots(ResourceObsidBase):
-    """FOT daily plots resource URL builder.
-
-    Allowed args: date, obsid, load_name
-    """
+    """FOT daily plots page by observation or date"""
 
     locations: tuple[str, ...] = ("occweb",)
 
     def get_url(self) -> str:
-        """Get the URL for the FOT daily plots resource for the given arguments."""
+        """Get the URL for the FOT daily plots page for the given arguments."""
         if self.date is not None:
             pass
         elif self.obsid is not None:
@@ -528,6 +535,8 @@ def main() -> None:
     ]
     if len(matching_resources) == 1:
         opt_dict["resource"] = matching_resources[0]
+
+    resource = opt_dict["resource"]
 
     try:
         resource_cls = ResourceBase.subclasses[resource]
