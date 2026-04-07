@@ -54,7 +54,11 @@ def test_starcheck_url_regression_occweb(monkeypatch):
     monkeypatch.setattr(
         mm,
         "get_observation",
-        lambda **kwargs: {"source": "DEC2324B", "obsid": 28365},
+        lambda **kwargs: {
+            "source": "DEC2324B",
+            "obsid": 28365,
+            "obs_start": "2025:001",
+        },
     )
     monkeypatch.setattr(
         mm.parse_cm.paths,
@@ -73,7 +77,11 @@ def test_starcheck_url_regression_cxc(monkeypatch):
     monkeypatch.setattr(
         mm,
         "get_observation",
-        lambda **kwargs: {"source": "DEC2324B", "obsid": 28365},
+        lambda **kwargs: {
+            "source": "DEC2324B",
+            "obsid": 28365,
+            "obs_start": "2025:001",
+        },
     )
     monkeypatch.setattr(
         mm.parse_cm.paths,

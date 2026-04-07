@@ -194,10 +194,11 @@ class ResourceBase:
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
-        base_name = cls.__name__[len("Resource") :]
-        step1 = re.sub(r"(.)([A-Z][a-z]+)", r"\1-\2", base_name)
-        cls.name = re.sub(r"([a-z0-9])([A-Z])", r"\1-\2", step1).lower()
-        ResourceBase.subclasses[cls.name] = cls
+        if not cls.__name__.endswith("Base"):
+            base_name = cls.__name__[len("Resource") :]
+            step1 = re.sub(r"(.)([A-Z][a-z]+)", r"\1-\2", base_name)
+            cls.name = re.sub(r"([a-z0-9])([A-Z])", r"\1-\2", step1).lower()
+            ResourceBase.subclasses[cls.name] = cls
 
     def __post_init__(self):
         self.check_locations()
@@ -230,35 +231,40 @@ class ResourceBase:
         """Get URL for the resource."""
         raise NotImplementedError
 
-
 @dataclasses.dataclass
-class ResourceStarcheck(ResourceBase):
-    locations: tuple[str, ...] = ("occweb", "cxc")
+class ResourceObsidBase(ResourceBase):
     obsid: int | None = None
     load_name: str | None = None
     date: CxoTime | None = None
 
+    def resolve_args_as_load_name_obsid(self) -> None:
+        """Set self load_name and obsid for the given arguments."""
+        obs = get_observation(
+            date=self.date,
+            obsid=self.obsid,
+            load_name=self.load_name,
+            archive_only=self.opt.get("archive_only"),
+        )
+        self.load_name = obs["source"]
+        self.date = CxoTime(obs["obs_start"])
+        self.obsid = obs.get("obsid_sched", obs["obsid"])
+
+
+@dataclasses.dataclass
+class ResourceStarcheck(ResourceObsidBase):
+    locations: tuple[str, ...] = ("occweb", "cxc")
+
     def get_url(self) -> str:
         """Get the URL for the Starcheck resource for the given arguments."""
-        if self.load_name and self.obsid is None and self.date is None:
-            load_name = self.load_name
-            obsid = None
-        else:
-            obs = get_observation(
-                date=self.date,
-                obsid=self.obsid,
-                load_name=self.load_name,
-                archive_only=self.opt.get("archive_only"),
-            )
-            load_name = obs["source"]
-            obsid = obs.get("obsid_sched", obs["obsid"])
+        load_name_only = self.load_name and self.obsid is None and self.date is None
+        if not load_name_only:
+            self.resolve_args_as_load_name_obsid()
 
         server = "icxc" if self.opt.get("cxc") else "occweb"
-
-        url = parse_cm.paths.load_url_from_load_name(load_name, server=server)
+        url = parse_cm.paths.load_url_from_load_name(self.load_name, server=server)
         url += "/starcheck.html"
-        if obsid is not None:
-            url += f"#obsid{obsid}"
+        if not load_name_only:
+            url += f"#obsid{self.obsid}"
 
         return url
 
@@ -303,35 +309,22 @@ def get_observation(
 
 
 @dataclasses.dataclass
-class ResourceMica(ResourceBase):
+class ResourceMica(ResourceObsidBase):
     """MICA resource URL builder.
 
     Allowed args: date, obsid, load_name
     """
 
     locations: tuple[str, ...] = ("cxc",)
-    date: CxoTime | None = None
-    obsid: int | None = None
-    load_name: str | None = None
 
     def get_url(self) -> str:
         """Get the URL for the MICA resource for the given arguments."""
         if self.obsid is None or self.load_name is None:
-            obs = get_observation(
-                date=self.date,
-                obsid=self.obsid,
-                load_name=self.load_name,
-                archive_only=self.opt.get("archive_only"),
-            )
-            load_name = obs["source"]
-            obsid = obs.get("obsid_sched", obs["obsid"])
-        else:
-            load_name = self.load_name
-            obsid = self.obsid
+            self.resolve_args_as_load_name_obsid()
 
         return (
             "https://kadi.cfa.harvard.edu/mica/"
-            f"?obsid_or_date={obsid}&load_name={load_name}"
+            f"?obsid_or_date={self.obsid}&load_name={self.load_name}"
         )
 
 
@@ -376,106 +369,73 @@ class ResourceStarHistory(ResourceBase):
 
 
 @dataclasses.dataclass
-class ResourceCentroidDashboard(ResourceBase):
+class ResourceCentroidDashboard(ResourceObsidBase):
     """Centroid Dashboard resource URL builder.
 
     Allowed args: date, obsid, load_name
     """
 
     locations: tuple[str, ...] = ("cxc", "local")
-    date: CxoTime | None = None
-    obsid: int | None = None
-    load_name: str | None = None
 
     def get_url(self) -> str:
         """Get the URL for the Centroid Dashboard resource for the given arguments."""
         if self.obsid is None or self.load_name is None:
-            obs = get_observation(
-                date=self.date,
-                obsid=self.obsid,
-                load_name=self.load_name,
-                archive_only=self.opt.get("archive_only"),
-            )
-            load_name = obs["source"]
-            obsid = obs.get("obsid_sched", obs["obsid"])
-        else:
-            load_name = self.load_name
-            obsid = self.obsid
+            self.resolve_args_as_load_name_obsid()
 
-        *_, load_year = parse_cm.parse_load_name(load_name)
+        *_, load_year = parse_cm.parse_load_name(self.load_name)
 
         if self.opt.get("local"):
             out = (
                 f"file://{SKA}/data/centroid_dashboard/centroid_reports/"
-                f"{load_year}/{load_name}/{obsid}/index.html"
+                f"{load_year}/{self.load_name}/{self.obsid}/index.html"
             )
         else:
             out = (
                 "https://icxc.cfa.harvard.edu/aspect/centroid_reports/"
-                f"{load_year}/{load_name}/{obsid}/index.html"
+                f"{load_year}/{self.load_name}/{self.obsid}/index.html"
             )
         return out
 
 
 @dataclasses.dataclass
-class ResourceChaser(ResourceBase):
+class ResourceChaser(ResourceObsidBase):
     """Chaser resource URL builder.
 
     Allowed args: obsid, date, load_name
     """
 
     locations: tuple[str, ...] = ("cxc",)
-    obsid: int | None = None
-    date: CxoTime | None = None
-    load_name: str | None = None
 
     def get_url(self) -> str:
         """Get the URL for the Chaser resource for the given arguments."""
         if self.obsid is None:
-            obs = get_observation(
-                date=self.date,
-                obsid=self.obsid,
-                load_name=self.load_name,
-                archive_only=self.opt.get("archive_only"),
-            )
-            obsid = obs.get("obsid_sched", obs["obsid"])
-        else:
-            obsid = self.obsid
+            self.resolve_args_as_load_name_obsid()
 
         return (
             "https://cda.cfa.harvard.edu/chaser/startViewer.do"
-            f"?menuItem=details&obsid={obsid}"
+            f"?menuItem=details&obsid={self.obsid}"
         )
 
 
 @dataclasses.dataclass
-class ResourceFotDailyPlots(ResourceBase):
+class ResourceFotDailyPlots(ResourceObsidBase):
     """FOT daily plots resource URL builder.
 
     Allowed args: date, obsid, load_name
     """
 
     locations: tuple[str, ...] = ("occweb",)
-    date: CxoTime | None = None
-    obsid: int | None = None
-    load_name: str | None = None
 
     def get_url(self) -> str:
         """Get the URL for the FOT daily plots resource for the given arguments."""
-        if self.obsid is not None:
-            obs = get_observation(
-                date=self.date,
-                obsid=self.obsid,
-                load_name=self.load_name,
-                archive_only=self.opt.get("archive_only"),
-            )
-            date = CxoTime(obs["obs_start"])
-        elif self.date is not None:
-            date = CxoTime(self.date)
+        if self.date is not None:
+            pass
+        elif self.obsid is not None:
+            self.resolve_args_as_load_name_obsid()
         else:
             raise ValueError("fot-daily-plots requires either obsid or date")
 
-        dt = date.datetime
+        dt = self.date.datetime
         year = dt.year
         month_upper = dt.strftime("%b").upper()
         month_lower = dt.strftime("%b").lower()
