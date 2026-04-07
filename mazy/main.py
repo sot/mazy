@@ -9,6 +9,7 @@ import astropy.units as u
 import kadi.commands as kc
 import parse_cm.paths
 from cxotime import CxoTime
+from kadi import occweb
 
 from mazy import __version__
 
@@ -302,6 +303,71 @@ class ResourceStarcheck(ResourceObsidBase):
         if not load_name_only:
             url += f"#obsid{self.obsid}"
 
+        return url
+
+
+@dataclasses.dataclass
+class ResourceDOT(ResourceStarcheck):
+    def get_url(self) -> str:
+        """Get URL for DOT file for the given arguments."""
+        url = super().get_url()
+        file_link = f"md{self.load_name}.dot.html#{self.obsid}"
+        url = re.sub(r"starcheck\.html.*$", "starcheck/" + file_link, url)
+        return url
+
+
+@dataclasses.dataclass
+class ResourceTLR(ResourceStarcheck):
+    def get_url(self) -> str:
+        """Get URL for timeline report file for the given arguments."""
+        url = super().get_url()
+        starcheck_html = occweb.get_occweb_page(url)
+        # look for something like '"starcheck/CR\d+_\d+.tlr.html#\d+"'
+        match = re.search(r"starcheck/CR\d+_\d+\.tlr\.html#", starcheck_html)
+        if not match:
+            raise ValueError(f"Backstop file not found in Starcheck page: {url}")
+        # Replace starcheck.html.*$ in `url` with the matched backstop file
+        file_link = match.group(0) + str(self.obsid)
+        url = re.sub(r"starcheck\.html.*$", file_link, url)
+        return url
+
+@dataclasses.dataclass
+class ResourceBackstop(ResourceStarcheck):
+    def get_url(self) -> str:
+        """Get URL for backstop file for the given arguments."""
+        url = super().get_url()
+        starcheck_html = occweb.get_occweb_page(url)
+        # look for something like '"starcheck/CR\d+_\d+.backstop.html#\d+"'
+        match = re.search(r"starcheck/CR\d+_\d+\.backstop\.html#", starcheck_html)
+        if not match:
+            raise ValueError(f"Backstop file not found in Starcheck page: {url}")
+        # Replace starcheck.html.*$ in `url` with the matched backstop file
+        backstop_file_link = match.group(0) + str(self.obsid)
+        url = re.sub(r"starcheck\.html.*$", backstop_file_link, url)
+        return url
+
+
+@dataclasses.dataclass
+class ResourceORList(ResourceStarcheck):
+    def get_url(self) -> str:
+        """Get URL for OR List file for the given arguments."""
+        # starcheck/DEC2925_B.or.html#31287
+        url = super().get_url()
+        or_list_link = (
+            self.load_name[:-1] + "_" + self.load_name[-1] + f".or.html#{self.obsid}"
+        )
+        url = re.sub(r"starcheck\.html.*$", "starcheck/" + or_list_link, url)
+        return url
+
+
+@dataclasses.dataclass
+class ResourceManeuverSummary(ResourceStarcheck):
+    def get_url(self) -> str:
+        """Get URL for maneuver summary file for the given arguments."""
+        # starcheck/mmDEC2324B.sum.html#28365
+        url = super().get_url()
+        mm_sum_link = f"mm{self.load_name}.sum.html#{self.obsid}"
+        url = re.sub(r"starcheck\.html.*$", "starcheck/" + mm_sum_link, url)
         return url
 
 
