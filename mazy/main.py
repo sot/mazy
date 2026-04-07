@@ -102,6 +102,41 @@ def get_opt_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def get_observation(
+    *,
+    date: CxoTime | None = None,
+    obsid: int | None = None,
+    load_name: str | None = None,
+    archive_only: bool = False,
+) -> dict[str, Any]:
+    """Get a unique observation matching the given arguments."""
+    if date is None and obsid is None and load_name is None:
+        raise ValueError("need to specify at least one of date, obsid, or load_name")
+
+    kwargs = {}
+    if archive_only:
+        kwargs["scenario"] = "flight"
+    if date:
+        kwargs["start"] = date
+        kwargs["stop"] = date + 15 * u.s  # cover gap from NMAN to manvr start
+        if date < CxoTime("-30d"):
+            kwargs["scenario"] = "flight"  # update to "archive-only" when possible
+    if obsid:
+        kwargs["obsid_sched"] = obsid
+    if load_name:
+        kwargs["source"] = load_name
+
+    obss = kc.get_observations(**kwargs)
+    if len(obss) == 1:
+        return obss[0]
+    else:
+        raise NotUniqueObservationError(
+            "found "
+            f"{len(obss)} observations (instead of one) "
+            f"for date={date}, obsid={obsid}, load_name={load_name}"
+        )
+
+
 class ParserBase:
     """Base class for argument parsers."""
 
@@ -231,6 +266,7 @@ class ResourceBase:
         """Get URL for the resource."""
         raise NotImplementedError
 
+
 @dataclasses.dataclass
 class ResourceObsidBase(ResourceBase):
     obsid: int | None = None
@@ -271,41 +307,6 @@ class ResourceStarcheck(ResourceObsidBase):
 
 class NotUniqueObservationError(Exception):
     """Raised when the arguments do not specify a unique observation."""
-
-
-def get_observation(
-    *,
-    date: CxoTime | None = None,
-    obsid: int | None = None,
-    load_name: str | None = None,
-    archive_only: bool = False,
-) -> dict[str, Any]:
-    """Get a unique observation matching the given arguments."""
-    if date is None and obsid is None and load_name is None:
-        raise ValueError("need to specify at least one of date, obsid, or load_name")
-
-    kwargs = {}
-    if archive_only:
-        kwargs["scenario"] = "flight"
-    if date:
-        kwargs["start"] = date
-        kwargs["stop"] = date + 15 * u.s  # cover gap from NMAN to manvr start
-        if date < CxoTime("-30d"):
-            kwargs["scenario"] = "flight"  # update to "archive-only" when possible
-    if obsid:
-        kwargs["obsid_sched"] = obsid
-    if load_name:
-        kwargs["source"] = load_name
-
-    obss = kc.get_observations(**kwargs)
-    if len(obss) == 1:
-        return obss[0]
-    else:
-        raise NotUniqueObservationError(
-            "found "
-            f"{len(obss)} observations (instead of one) "
-            f"for date={date}, obsid={obsid}, load_name={load_name}"
-        )
 
 
 @dataclasses.dataclass
