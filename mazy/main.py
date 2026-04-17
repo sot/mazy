@@ -20,6 +20,8 @@ SKA = os.environ["SKA"]
 #     - On HEAD disk /data/mpcrit1/mplogs/OFLS_testing/2026/JAN2626
 #     - URL https://icxc.harvard.edu/mp/mplogs/OFLS_testing/2026/JAN2626/scheduled_t/JAN2626T.html
 #     - Where do FOT test loads live? Any network-visible location?
+# - Short term schedule summary stuff via
+#   - https://cxc.cfa.harvard.edu/mta/ASPECT/schedule_view3/cycle_map.json
 
 
 def get_opt_parser() -> argparse.ArgumentParser:
@@ -54,14 +56,14 @@ def get_opt_parser() -> argparse.ArgumentParser:
         description=(
             "Find a Chandra operations resource by observation, obsid, load_name, date, "
             "or AGASC ID as appropriate.\n\n"
-            "Available resources:\n"
-            + "\n".join(resource_lines)
+            "Available resources:\n" + "\n".join(resource_lines)
         ),
         epilog=(
             "Examples:\n"
             "  mazy dot 43474\n"
             "  mazy dot APR2924A\n"
             "  mazy backstop 2024:125:06:22:32\n"
+            "  mazy backstop  # no args => current time\n"
             "  mazy fot-daily-plots 2024:125:06:22:32\n"
             "  mazy fot 43474  # abbreviation\n"
             "  mazy maneuver 2025:001\n"
@@ -551,7 +553,7 @@ def main() -> None:
             f"available resources are: {list(ResourceBase.subclasses)}"
         ) from None
 
-    url = resource_cls(args=opt.args, opt=opt_dict).get_url()
+    url = resource_cls(args=opt.args or ["0d"], opt=opt_dict).get_url()
 
     if opt_dict.get("print_url"):
         print(url)
