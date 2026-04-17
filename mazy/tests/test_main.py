@@ -25,6 +25,7 @@ def make_opt(**overrides):
         (mm.ResourceAgasc, ("cxc",)),
         (mm.ResourceStarHistory, ("cxc",)),
         (mm.ResourceCentroidDashboard, ("cxc", "local")),
+        (mm.ResourceShortTermSchedule, ("cxc",)),
         (mm.ResourceChaser, ("cxc",)),
         (mm.ResourceFotDailyPlots, ("occweb",)),
     ],
@@ -41,6 +42,7 @@ def test_resource_locations_attr(resource_cls, allowed_locations):
         (mm.ResourceAgasc, ["701368208"], "occweb"),
         (mm.ResourceStarHistory, ["701368208"], "local"),
         (mm.ResourceCentroidDashboard, ["43474", "APR2924A"], "occweb"),
+        (mm.ResourceShortTermSchedule, ["APR2924A"], "occweb"),
         (mm.ResourceChaser, ["43474"], "occweb"),
         (mm.ResourceFotDailyPlots, ["2024:125:06:22:32"], "local"),
     ],
@@ -151,6 +153,18 @@ def test_centroid_dashboard_url_regression_local(monkeypatch):
     )
 
 
+def test_short_term_schedule_url_regression(monkeypatch):
+    monkeypatch.setattr(mm, "get_cycle_for_load_name", lambda name: 24)
+    resource = mm.ResourceShortTermSchedule(
+        load_name="APR2924A",
+        opt=make_opt(cxc=True),
+    )
+    assert (
+        resource.get_url()
+        == "https://icxc.cfa.harvard.edu/mp/schedules/cycle24/APR2924A.html"
+    )
+
+
 def test_chaser_url_regression():
     resource = mm.ResourceChaser(obsid=43474, opt=make_opt(cxc=True))
     assert (
@@ -177,6 +191,11 @@ def test_fot_daily_plots_url_regression():
         (mm.ResourceAgasc, {"cxc": True}, "agasc_id must be specified"),
         (mm.ResourceStarHistory, {"cxc": True}, "agasc_id must be specified"),
         (mm.ResourceCentroidDashboard, {"cxc": True}, "need to specify at least one"),
+        (
+            mm.ResourceShortTermSchedule,
+            {"cxc": True},
+            "need to specify at least one",
+        ),
         (mm.ResourceChaser, {"cxc": True}, "need to specify at least one"),
         (mm.ResourceFotDailyPlots, {"occweb": True}, "requires either obsid or date"),
     ],

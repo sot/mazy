@@ -8,6 +8,7 @@ from typing import Any, ClassVar
 import astropy.units as u
 import kadi.commands as kc
 import parse_cm.paths
+import requests
 from cxotime import CxoTime
 from kadi import occweb
 
@@ -20,8 +21,6 @@ SKA = os.environ["SKA"]
 #     - On HEAD disk /data/mpcrit1/mplogs/OFLS_testing/2026/JAN2626
 #     - URL https://icxc.harvard.edu/mp/mplogs/OFLS_testing/2026/JAN2626/scheduled_t/JAN2626T.html
 #     - Where do FOT test loads live? Any network-visible location?
-# - Short term schedule summary stuff via
-#   - https://cxc.cfa.harvard.edu/mta/ASPECT/schedule_view3/cycle_map.json
 
 
 def get_opt_parser() -> argparse.ArgumentParser:
@@ -482,6 +481,44 @@ class ResourceCentroidDashboard(ResourceObsidBase):
                 f"{load_year}/{self.load_name}/{self.obsid}/index.html"
             )
         return out
+
+
+URL_CYCLE_MAP = "https://cxc.cfa.harvard.edu/mta/ASPECT/schedule_view3/cycle_map.json"
+
+
+def get_cycle_map():
+    cycle_map = requests.get(URL_CYCLE_MAP).json()
+    return cycle_map
+
+
+def get_cycle_for_load_name(load_name: str):
+    """Read URL_CYCLE_MAP and return the corresponding cycle.
+
+    cycle_map.json has a mapping of load_week => cycle.
+    load_week is the load_name without the final version character.
+
+    Use requests to read the JSON file since no authentication is required.
+
+    """
+    cycle_map = get_cycle_map()
+    load_week = load_name[:-1]
+    cycle = cycle_map.get(load_week)
+    if cycle is None:
+        raise ValueError(f"Could not find cycle for load_name {load_name}")
+    return cycle
+
+
+@dataclasses.dataclass
+class ResourceShortTermSchedule(ResourceObsidBase):
+    """SOT Short Term Schedule page"""
+
+    locations: tuple[str, ...] = ("cxc",)
+
+    def get_url(self) -> str:
+        if self.load_name is None:
+            self.resolve_args_as_load_name_obsid()
+        cycle = get_cycle_for_load_name(self.load_name)
+        return f"https://icxc.cfa.harvard.edu/mp/schedules/cycle{cycle}/{self.load_name}.html"
 
 
 @dataclasses.dataclass
