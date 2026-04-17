@@ -143,10 +143,15 @@ def get_observation(
     if len(obss) == 1:
         return obss[0]
     else:
+        obs_infos = [
+            f"obsid={obs['obsid_sched']} source={obs['source']} date={obs['obs_start']}"
+            for obs in obss
+        ]
         raise NotUniqueObservationError(
             "found "
             f"{len(obss)} observations (instead of one) "
-            f"for date={date}, obsid={obsid}, load_name={load_name}"
+            f"for date={date}, obsid={obsid}, load_name={load_name}\n"
+            + "\n".join(obs_infos)
         )
 
 
