@@ -103,6 +103,16 @@ def test_mica_url_regression():
     )
     assert (
         resource.get_url()
+        == "https://icxc.harvard.edu/aspect/mica_reports/43/43474/index.html"
+    )
+
+
+def test_mica_kadi_url_regression():
+    resource = mm.ResourceMicaKadi(
+        obsid=43474, load_name="APR2924A", opt=make_opt(cxc=True)
+    )
+    assert (
+        resource.get_url()
         == "https://kadi.cfa.harvard.edu/mica/?obsid_or_date=43474&load_name=APR2924A"
     )
 
