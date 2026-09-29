@@ -407,8 +407,8 @@ class NotUniqueObservationError(Exception):
 
 
 @dataclasses.dataclass
-class ResourceMica(ResourceObsidBase):
-    """Mica aspect page by observation"""
+class ResourceMicaKadi(ResourceObsidBase):
+    """Mica aspect page by observation on the kadi web server"""
 
     locations: tuple[str, ...] = ("cxc",)
 
@@ -421,6 +421,21 @@ class ResourceMica(ResourceObsidBase):
             "https://kadi.cfa.harvard.edu/mica/"
             f"?obsid_or_date={self.obsid}&load_name={self.load_name}"
         )
+
+
+@dataclasses.dataclass
+class ResourceMica(ResourceObsidBase):
+    """Mica aspect page by observation direct on the icxc web server"""
+
+    locations: tuple[str, ...] = ("cxc",)
+
+    def get_url(self) -> str:
+        """Get the URL for the MICA resource for the given arguments."""
+        if self.obsid is None or self.load_name is None:
+            self.resolve_args_as_load_name_obsid()
+
+        obsid_str = f"{self.obsid:05d}"
+        return f"https://icxc.harvard.edu/aspect/mica_reports/{obsid_str[:2]}/{obsid_str}/index.html"
 
 
 @dataclasses.dataclass
